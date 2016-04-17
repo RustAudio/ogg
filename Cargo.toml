@@ -2,9 +2,11 @@
 name = "ogg"
 version = "0.1.0"
 authors = ["est31 <MTest31@outlook.com>"]
-description = "Ogg container format decoder and encoder written in pure Rust"
-license = "MIT OR Apache 2"
-keywords = ["ogg", "decoder"]
+description = "Ogg container decoder and encoder written in pure Rust"
+license = "MIT/Apache-2.0"
+keywords = ["ogg", "decoder", "encoder", "xiph"]
+repository = "https://github.com/est31/ogg"
+readme = "README.md"
 
 [lib]
 name = "ogg"
