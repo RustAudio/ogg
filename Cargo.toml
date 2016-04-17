@@ -1,0 +1,17 @@
+[package]
+name = "ogg"
+version = "0.1.0"
+authors = ["est31 <MTest31@outlook.com>"]
+description = "Ogg container format decoder and encoder written in pure Rust"
+license = "MIT OR Apache 2"
+keywords = ["ogg", "decoder"]
+
+[lib]
+name = "ogg"
+
+[dependencies]
+byteorder = "0.5.1"
+
+
+[dev-dependencies]
+time = "0.1"
