@@ -42,10 +42,10 @@ fn run() -> Result<(), std::io::Error> {
 				byte_ctr += p.data.len() as u64;
 				dump_pck_info(&p);
 				let elapsed = begin.elapsed();
-				let elapsed_ms = elapsed.as_secs() as f64 / 1000.0 +
+				let elapsed_ms = 1000.0 * elapsed.as_secs() as f64 +
 					elapsed.subsec_nanos() as f64 / 1000_000.0;
 				println!("speed: {:.3} kb per ms ({} read)",
-					1000. * byte_ctr as f64 / elapsed_ms,
+					byte_ctr as f64 / elapsed_ms / 1000.0,
 					byte_ctr);
 				// Why do we not check p.last_packet here, and break the loop if false?
 				// Well, first, this is only an example.
