@@ -8,12 +8,11 @@
 
 extern crate ogg;
 extern crate byteorder;
-extern crate time;
 
 use std::env;
 use ogg::{PacketReader, Packet};
 use std::fs::File;
-use time::precise_time_ns;
+use std::time::Instant;
 
 fn main() {
 	match run() {
@@ -34,7 +33,7 @@ fn run() -> Result<(), std::io::Error> {
 	let mut pck_rdr = PacketReader::new(&mut f);
 
 	let mut byte_ctr :u64 = 0;
-	let begin :u64 = precise_time_ns();
+	let begin = Instant::now();
 
 	loop {
 		let r = pck_rdr.read_packet();
@@ -42,8 +41,11 @@ fn run() -> Result<(), std::io::Error> {
 			Ok(p) => {
 				byte_ctr += p.data.len() as u64;
 				dump_pck_info(&p);
-				println!("speed: {} kb per ms ({} read)",
-					1000. * (byte_ctr) as f32 / ((precise_time_ns() - begin) as f32),
+				let elapsed = begin.elapsed();
+				let elapsed_ms = elapsed.as_secs() as f64 / 1000.0 +
+					elapsed.subsec_nanos() as f64 / 1000_000.0;
+				println!("speed: {:.3} kb per ms ({} read)",
+					1000. * byte_ctr as f64 / elapsed_ms,
 					byte_ctr);
 				// Why do we not check p.last_packet here, and break the loop if false?
 				// Well, first, this is only an example.
