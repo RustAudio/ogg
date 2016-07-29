@@ -263,7 +263,7 @@ This reads codec packets belonging to several different logical streams from one
 
 It doesn't support seeking yet.
 */
-pub struct PacketReader<'a, T :io::Read + 'a> {
+pub struct PacketReader<'a, T :io::Read + io::Seek + 'a> {
 	rdr :&'a mut T,
 
 	// TODO the hashmap plus the set is perhaps smart ass perfect design but could be made more performant I guess...
@@ -279,7 +279,7 @@ pub struct PacketReader<'a, T :io::Read + 'a> {
 	stream_with_stuff :Option<u32>,
 }
 
-impl<'a, T :io::Read + 'a> PacketReader <'a, T> {
+impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 	/// Constructs a new `PacketReader` with a given `Read`.
 	pub fn new(rdr :&mut T) -> PacketReader<T> {
 		return PacketReader { rdr: rdr, page_infos: HashMap::new(), stream_with_stuff: None };
@@ -344,6 +344,98 @@ impl<'a, T :io::Read + 'a> PacketReader <'a, T> {
 		});
 	}
 
+	/// Reads until the new page header, and then returns the page header array.
+	///
+	/// If no new page header is immediately found, it performs a "recapture",
+	/// meaning it searches for the capture pattern, and if it finds it, it
+	/// reads the complete first 27 bytes of the header, and returns them.
+	fn read_until_pg_header(self :&mut PacketReader <'a, T>) -> Result<[u8; 27], OggReadError> {
+		let mut cpat_offs = 0;
+		// Returns the Some(off), where off is the offset of the last byte
+		// of the capture pattern if its found, None if the capture pattern
+		// is not inside the passed slice.
+		let mut check_arr = |arr :&[u8]| {
+			for (i, ch) in arr.iter().enumerate() {
+				match *ch {
+					0x4f /*'O'*/ if cpat_offs == 0 => cpat_offs = 1,
+					0x67 /*'g'*/ if cpat_offs == 1 || cpat_offs == 2 => cpat_offs += 1,
+					0x53 /*'S'*/ if cpat_offs == 3 => return Some(i),
+					_ => cpat_offs = 0,
+				}
+			}
+			return None;
+		};
+		// First try the most normal case: The capture
+		// pattern is at offset 0. No need for "recapture".
+		let mut header_buf :[u8; 27] = [0; 27];
+		try!(self.rdr.read_exact(&mut header_buf));
+		match check_arr(&header_buf) {
+			Some(idx) => if idx == 3 {
+				// No need for recapture
+				return Ok(header_buf);
+			} else {
+				// Capture pattern found, but offset by
+				// a small amount.
+				// Read remaining parts of the header,
+				// then reassemble and return
+				let mut ret_buf :[u8; 27] = [0; 27];
+				let tocopy_len = header_buf.len() - idx;
+				(&mut ret_buf[0..tocopy_len]).copy_from_slice(&header_buf[idx..]);
+				try!(self.rdr.read_exact(&mut ret_buf[tocopy_len..]));
+				return Ok(ret_buf);
+			},
+			None => (), // Not found, do nothing.
+		}
+		let mut read_amount = 27;
+		// 150 kb gives us a bit of safety: we can survive
+		// up to one page with a corrupted capture pattern
+		// after having seeked right after a capture pattern
+		// of an earlier page.
+		let read_amount_max = 150 * 1024;
+		let mut rdr_buf :[u8; 1024] = [0; 1024];
+		loop {
+			let rd_len = try!(self.rdr.read(&mut rdr_buf));
+			read_amount += rd_len;
+			if rd_len == 0 {
+				// Reached EOF.
+				try!(Err(OggReadError::NoCapturePatternFound));
+			}
+			match check_arr(&rdr_buf[0..rd_len]) {
+				Some(off) => {
+					let mut ret_buf :[u8; 27] = [0; 27];
+					ret_buf[0] = 0x4f; // 'O'
+					ret_buf[1] = 0x67; // 'g'
+					ret_buf[2] = 0x67; // 'g'
+					ret_buf[3] = 0x53; // 'S' (Not actually needed)
+					let cnt_from_rdr_buf = rdr_buf.len() - off;
+					use std::cmp::min;
+					let copy_amount = min(24, cnt_from_rdr_buf);
+					(&mut ret_buf[3..copy_amount + 3])
+						.copy_from_slice(&rdr_buf[off..copy_amount + off]);
+					if cnt_from_rdr_buf > 24 {
+						// We have read too much content (exceeding the header).
+						// Seek back so that we are at the position
+						// right after the header.
+						try!(self.rdr.seek(SeekFrom::Current(24 - (cnt_from_rdr_buf as i64))));
+					} else if cnt_from_rdr_buf == 24 {
+						// All is fine. Nothing has to be done.
+					} else {
+						// We still have to read some content.
+						try!(self.rdr.read_exact(
+							&mut ret_buf[cnt_from_rdr_buf + 3..]));
+					}
+					return Ok(ret_buf);
+				},
+				None => (), // Nothing found.
+			}
+			if read_amount > read_amount_max {
+				// Exhaustive searching for the capture pattern
+				// has returned no ogg capture pattern.
+				try!(Err(OggReadError::NoCapturePatternFound));
+			}
+		}
+	}
+
 	/// Reads a new Ogg page.
 	///
 	/// This method reads a new Ogg page.
@@ -351,17 +443,9 @@ impl<'a, T :io::Read + 'a> PacketReader <'a, T> {
 	/// TODO to support seeking this has to not assume that the capture pattern
 	/// is at the current reader position. Instead it should search until it finds such a pattern.
 	fn read_ogg_page(self :&mut PacketReader <'a, T>) -> Result<(), OggReadError> {
-		let mut header_buf :[u8; 27] = [0; 27];
-		try!(self.rdr.read_exact(&mut header_buf));
+		let mut header_buf :[u8; 27] = try!(self.read_until_pg_header());
 		let mut header_rdr = Cursor::new(header_buf);
-		if (
-				try!(header_rdr.read_u8()) != 0x4f || // 'O'
-				try!(header_rdr.read_u8()) != 0x67 || // 'g'
-				try!(header_rdr.read_u8()) != 0x67 || // 'g'
-				try!(header_rdr.read_u8()) != 0x53    // 'S'
-		) {
-			try!(Err(OggReadError::NoCapturePatternFound));
-		}
+		header_rdr.set_position(4);
 		let stream_structure_version = try!(header_rdr.read_u8());
 		if stream_structure_version != 0 {
 			try!(Err(OggReadError::InvalidStreamStructVer(stream_structure_version)));
