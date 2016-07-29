@@ -22,7 +22,7 @@ extern crate byteorder;
 use std::result;
 use std::io;
 use std::rc::Rc;
-use std::io::{Cursor, Write, Seek, SeekFrom};
+use std::io::{Cursor, Write, Seek, SeekFrom, Error};
 use byteorder::{WriteBytesExt, ReadBytesExt, LittleEndian};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -260,8 +260,6 @@ impl PageInfo {
 Reader for packets from an Ogg stream.
 
 This reads codec packets belonging to several different logical streams from one physical Ogg container stream.
-
-It doesn't support seeking yet.
 */
 pub struct PacketReader<'a, T :io::Read + io::Seek + 'a> {
 	rdr :&'a mut T,
@@ -277,12 +275,17 @@ pub struct PacketReader<'a, T :io::Read + io::Seek + 'a> {
 	/// There is always <= 1, bc if there is one, no new pages will be read, so there is no chance for a second to be added
 	/// None if there is no such stream and one has to read a new page.
 	stream_with_stuff :Option<u32>,
+
+	// Bool that is set to true when a seek of the stream has occured.
+	// This helps validator code to decide whether to accept certain strange data.
+	has_seeked :bool,
 }
 
 impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 	/// Constructs a new `PacketReader` with a given `Read`.
 	pub fn new(rdr :&mut T) -> PacketReader<T> {
-		return PacketReader { rdr: rdr, page_infos: HashMap::new(), stream_with_stuff: None };
+		return PacketReader { rdr: rdr, page_infos: HashMap::new(),
+			stream_with_stuff: None, has_seeked: false };
 	}
 	/// Reads a packet, and returns it on success.
 	pub fn read_packet(self :&mut PacketReader <'a, T>) -> Result<Packet, OggReadError> {
@@ -440,8 +443,9 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 	///
 	/// This method reads a new Ogg page.
 	///
-	/// TODO to support seeking this has to not assume that the capture pattern
-	/// is at the current reader position. Instead it should search until it finds such a pattern.
+	/// To support seeking this does not assume that the capture pattern
+	/// is at the current reader position.
+	/// Instead it searches until it finds the capture pattern.
 	fn read_ogg_page(self :&mut PacketReader <'a, T>) -> Result<(), OggReadError> {
 		let mut header_buf :[u8; 27] = try!(self.read_until_pg_header());
 		let mut header_rdr = Cursor::new(header_buf);
@@ -525,13 +529,28 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 					try!(Err(OggReadError::InvalidData));
 				}
 				if continued_packet != inf.ends_with_continued {
-					try!(Err(OggReadError::InvalidData));
-					// TODO if we support seeking, we should be more tolerant here,
-					// and just drop the continued packet's content in this case.
-					// (we should detect a jump and drop _all_ continued packets
-					// regardless what inf.ends_with_continued says)
-				}
-				if continued_packet {
+					if !self.has_seeked {
+						try!(Err(OggReadError::InvalidData));
+					} else {
+						// If we have seeked, we are more tolerant here,
+						// and just drop the continued packet's content.
+
+						inf.last_overlap_pck.clear();
+						if continued_packet {
+							packets.remove(0);
+							if packet_count != 0 {
+								// Decrease packet count by one. Normal case.
+								packet_count -= 1;
+							} else {
+								// If the packet count is 0, this means
+								// that we start and end with the same continued packet.
+								// So now as we ignore that packet, we must clear the
+								// ends_with_continued state as well.
+								ends_with_continued = false;
+							}
+						}
+					}
+				} else if continued_packet {
 					// Remember the packet at the end so that it can be glued together once
 					// we encounter the next segment with length < 255 (doesnt have to be in this page)
 					let (offs, len) = inf.packet_positions[inf.packet_idx as usize];
@@ -556,9 +575,30 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 				inf.page_body = page_data;
 			},
 			Entry::Vacant(v) => {
-				if !first_page || continued_packet {
-					try!(Err(OggReadError::InvalidData));
-					// TODO later on when seeking is supported, this shouldn't be invalid but instead we should ignore first_page not being set, and ignore until the first < 255 packet if continued_packet is set
+				if !self.has_seeked {
+					if (!first_page || continued_packet) {
+						// If we haven't seeked, this is an error.
+						try!(Err(OggReadError::InvalidData));
+					}
+				} else {
+					if !first_page {
+						// we can just ignore this.
+					}
+					if continued_packet {
+						// Ignore the continued packet's content.
+						// This is a normal occurence if we have just seeked.
+						packets.remove(0);
+						if packet_count != 0 {
+							// Decrease packet count by one. Normal case.
+							packet_count -= 1;
+						} else {
+							// If the packet count is 0, this means
+							// that we start and end with the same continued packet.
+							// So now as we ignore that packet, we must clear the
+							// ends_with_continued state as well.
+							ends_with_continued = false;
+						}
+					}
 				}
 				v.insert(PageInfo {
 					starts_with_continued: continued_packet,
@@ -583,6 +623,21 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 		}
 
 		return Ok(());
+	}
+
+	/// Seeks the underlying reader
+	///
+	/// Seeks the reader that this PacketReader bases on by the specified
+	/// number of bytes. All new pages will be read from the new position.
+	///
+	/// This also flushes all the unread packets in the queue.
+	pub fn seek_bytes(&mut self, pos :SeekFrom) -> Result<u64, Error> {
+		let r = try!(self.rdr.seek(pos));
+		// Reset the internal state
+		self.stream_with_stuff = None;
+		self.page_infos = HashMap::new();
+		self.has_seeked = true;
+		return Ok(r);
 	}
 }
 
