@@ -199,6 +199,8 @@ Every logical bitstream is identified by the serial number its pages have stored
 pub struct Packet {
 	/// The data the `Packet` contains
 	pub data :Vec<u8>,
+	/// `true` iff this packet is the first one in the logical bitstream.
+	pub first_packet :bool,
 	/// `true` iff this packet is the last one in the logical bitstream
 	pub last_packet :bool,
 	/// Absolute granule position of the last page the packet was in.
@@ -246,6 +248,11 @@ struct PageInfo {
 }
 
 impl PageInfo {
+	/// Returns `true` if the first "unread" packet is the first one
+	/// in the page, `false` otherwise.
+	fn is_first_pck_in_pg(self :&PageInfo) -> bool {
+		return self.packet_idx == 0;
+	}
 	/// Returns `true` if the first "unread" packet is the last one
 	/// in the page, `false` otherwise.
 	/// If the first "unread" packet isn't completed in this page
@@ -328,6 +335,9 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 			cont
 		};
 
+		let first_pck_in_pg = pg_info.is_first_pck_in_pg();
+		let first_pck_overall = pg_info.first_page && first_pck_in_pg;
+
 		let last_pck_in_pg = pg_info.is_last_pck_in_pg();
 		let last_pck_overall = pg_info.last_page && last_pck_in_pg;
 
@@ -341,6 +351,7 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 
 		return Ok(Packet {
 			data: packet_content,
+			first_packet: first_pck_overall,
 			last_packet: last_pck_overall,
 			absgp_page: pg_info.last_absgp,
 			stream_serial: str_serial,
