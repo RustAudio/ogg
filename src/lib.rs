@@ -771,27 +771,29 @@ impl <'a, T :io::Write + 'a> PacketWriter<'a, T> {
 					// We have to flush a page, but we know there are more to come...
 					pg.pck_this_overflow_idx = Some((segment_i + 1) * 255);
 					try!(PacketWriter::write_page(self.wtr, serial, pg, false, absgp));
-					pg.pck_last_overflow_idx = pg.pck_this_overflow_idx;
-					pg.pck_this_overflow_idx = None;
 				} else {
 					// We have to write a page end, and its the very last in the stream
 					try!(PacketWriter::write_page(self.wtr,
 						serial, pg, is_end_stream, absgp));
-					// Not actually required, but there for completeness
+					// Not actually required either
 					// (it is always None except if we set it to Some directly
 					// before we call write_page)
 					pg.pck_this_overflow_idx = None;
 					// Required (it could have been Some(offs) before)
 					pg.pck_last_overflow_idx = None;
 				}
-				pg.sequence_num += 1;
 				at_page_end = true;
 			}
 			pg.segment_cnt = segment_in_page_i;
 		}
 		if (inf != PacketWriteEndInfo::NormalPacket) && !at_page_end {
+			// Write a page end
 			try!(PacketWriter::write_page(self.wtr, serial, pg, is_end_stream, absgp));
-			// TODO somehow erase pg from the hashmap...
+
+			pg.pck_last_overflow_idx = None;
+
+			// TODO if inf was PacketWriteEndInfo::EndStream, we have to
+			// somehow erase pg from the hashmap...
 			// any ideas? perhaps needs external scope...
 		}
 		// All went fine.
@@ -799,71 +801,83 @@ impl <'a, T :io::Write + 'a> PacketWriter<'a, T> {
 	}
 	fn write_page(wtr :&'a mut T, serial :u32, pg :&mut CurrentPageValues,
 			last_page :bool, absgp :u64)  -> IoResult<()> {
-		// The page header with everything but the lacing values:
-		let mut hdr_cur = Cursor::new(Vec::with_capacity(27));
-		try!(hdr_cur.write_all(&[0x4f, 0x67, 0x67, 0x53, 0x00]));
-		let mut flags :u8 = 0;
-		if pg.pck_last_overflow_idx.is_some() { flags |= 0x01; }
-		if pg.first_page { flags |= 0x02; }
-		if last_page { flags |= 0x04; }
-		try!(hdr_cur.write_u8(flags));
-		try!(hdr_cur.write_u64::<LittleEndian>(absgp));
-		try!(hdr_cur.write_u32::<LittleEndian>(serial));
-		try!(hdr_cur.write_u32::<LittleEndian>(pg.sequence_num));
+		{
+			// The page header with everything but the lacing values:
+			let mut hdr_cur = Cursor::new(Vec::with_capacity(27));
+			try!(hdr_cur.write_all(&[0x4f, 0x67, 0x67, 0x53, 0x00]));
+			let mut flags :u8 = 0;
+			if pg.pck_last_overflow_idx.is_some() { flags |= 0x01; }
+			if pg.first_page { flags |= 0x02; }
+			if last_page { flags |= 0x04; }
+			try!(hdr_cur.write_u8(flags));
+			try!(hdr_cur.write_u64::<LittleEndian>(absgp));
+			try!(hdr_cur.write_u32::<LittleEndian>(serial));
+			try!(hdr_cur.write_u32::<LittleEndian>(pg.sequence_num));
 
-		// checksum, calculated later on :)
-		// Don't do excessive checking here (that the seek
-		// succeeded & we are at the right pos now).
-		// Its hopefully not required.
-		try!(hdr_cur.seek(SeekFrom::Current(4)));
+			// checksum, calculated later on :)
+			// Don't do excessive checking here (that the seek
+			// succeeded & we are at the right pos now).
+			// Its hopefully not required.
+			try!(hdr_cur.seek(SeekFrom::Current(4)));
 
-		try!(hdr_cur.write_u8(pg.segment_cnt));
+			try!(hdr_cur.write_u8(pg.segment_cnt));
 
-		let mut hash_calculated :u32;
+			let mut hash_calculated :u32;
 
-		let pg_lacing = &pg.cur_pg_lacing[0 .. pg.segment_cnt as usize];
-		let pck_data = &pg.cur_pg_data;
+			let pg_lacing = &pg.cur_pg_lacing[0 .. pg.segment_cnt as usize];
+			let pck_data = &pg.cur_pg_data;
 
-		hash_calculated = vorbis_crc32_update(0, hdr_cur.get_ref());
-		hash_calculated = vorbis_crc32_update(hash_calculated, pg_lacing);
-		for (idx, pck) in pck_data.iter().enumerate() {
-			let mut start :usize = 0;
-			if idx == 0 { if let Some(idx) = pg.pck_last_overflow_idx {
-				start = idx;
-			}}
-			let mut end :usize = pck.len();
-			if idx + 1 == pck_data.len() {
-				if let Some(idx) = pg.pck_this_overflow_idx {
-					end = idx;
+			hash_calculated = vorbis_crc32_update(0, hdr_cur.get_ref());
+			hash_calculated = vorbis_crc32_update(hash_calculated, pg_lacing);
+			for (idx, pck) in pck_data.iter().enumerate() {
+				let mut start :usize = 0;
+				if idx == 0 { if let Some(idx) = pg.pck_last_overflow_idx {
+					start = idx;
+				}}
+				let mut end :usize = pck.len();
+				if idx + 1 == pck_data.len() {
+					if let Some(idx) = pg.pck_this_overflow_idx {
+						end = idx;
+					}
 				}
+				hash_calculated = vorbis_crc32_update(hash_calculated,
+					&pck[start .. end]);
 			}
-			hash_calculated = vorbis_crc32_update(hash_calculated,
-				&pck[start .. end]);
+
+			// Go back to enter the checksum
+			// Don't do excessive checking here (that the seek
+			// succeeded & we are at the right pos now).
+			// Its hopefully not required.
+			try!(hdr_cur.seek(SeekFrom::Start(22)));
+			try!(hdr_cur.write_u32::<LittleEndian>(hash_calculated));
+
+			// Now all is done, write the stuff!
+			try!(wtr.write_all(hdr_cur.get_ref()));
+			try!(wtr.write_all(pg_lacing));
+			for (idx, pck) in pck_data.iter().enumerate() {
+				let mut start :usize = 0;
+				if idx == 0 { if let Some(idx) = pg.pck_last_overflow_idx {
+					start = idx;
+				}}
+				let mut end :usize = pck.len();
+				if idx + 1 == pck_data.len() {
+					if let Some(idx) = pg.pck_this_overflow_idx {
+						end = idx;
+					}
+				}
+				try!(wtr.write_all(&pck[start .. end]));
+			}
 		}
 
-		// Go back to enter the checksum
-		// Don't do excessive checking here (that the seek
-		// succeeded & we are at the right pos now).
-		// Its hopefully not required.
-		try!(hdr_cur.seek(SeekFrom::Start(22)));
-		try!(hdr_cur.write_u32::<LittleEndian>(hash_calculated));
+		// Reset the page.
+		pg.first_page = false;
+		pg.sequence_num += 1;
 
-		// Now all is done, write the stuff!
-		try!(wtr.write_all(hdr_cur.get_ref()));
-		try!(wtr.write_all(pg_lacing));
-		for (idx, pck) in pck_data.iter().enumerate() {
-			let mut start :usize = 0;
-			if idx == 0 { if let Some(idx) = pg.pck_last_overflow_idx {
-				start = idx;
-			}}
-			let mut end :usize = pck.len();
-			if idx + 1 == pck_data.len() {
-				if let Some(idx) = pg.pck_this_overflow_idx {
-					end = idx;
-				}
-			}
-			try!(wtr.write_all(&pck[start .. end]));
-		}
+		pg.segment_cnt = 0;
+		pg.cur_pg_data.clear();
+
+		pg.pck_last_overflow_idx = pg.pck_this_overflow_idx;
+		pg.pck_this_overflow_idx = None;
 
 		return Ok(());
 	}
@@ -985,6 +999,36 @@ fn test_ogg_packet_rw() {
 		let mut r = PacketReader::new(&mut c);
 		let p2 = r.read_packet().unwrap();
 		test_arr_eq!(test_arr_2, *p2.data);
+		let p3 = r.read_packet().unwrap();
+		assert_eq!(test_arr_3, *p3.data);
+	}
+}
+
+#[test]
+fn test_page_end_after_first_packet() {
+	// Test that everything works well if we force a page end
+	// after the first packet
+	let mut c = Cursor::new(Vec::new());
+	let test_arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
+	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
+	{
+		let mut w = PacketWriter::new(&mut c);
+		let np = PacketWriteEndInfo::NormalPacket;
+		w.write_packet(Rc::new(test_arr), 0xdeadb33f,
+			PacketWriteEndInfo::EndPage, 0).unwrap();
+		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np.clone(), 1).unwrap();
+		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
+			PacketWriteEndInfo::EndPage, 2).unwrap();
+	}
+	//print_u8_slice(c.get_ref());
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+	{
+		let mut r = PacketReader::new(&mut c);
+		let p1 = r.read_packet().unwrap();
+		assert_eq!(test_arr, *p1.data);
+		let p2 = r.read_packet().unwrap();
+		assert_eq!(test_arr_2, *p2.data);
 		let p3 = r.read_packet().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
