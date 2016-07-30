@@ -1,6 +1,6 @@
 [package]
 name = "ogg"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["est31 <MTest31@outlook.com>"]
 description = "Ogg container decoder and encoder written in pure Rust"
 license = "MIT/Apache-2.0"
