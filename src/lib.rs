@@ -707,7 +707,7 @@ struct CurrentPageValues {
 /// the first packet of the whole stream into its own page.
 /// The `EndPage` variant can be used for this.
 #[derive(PartialEq)]
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum PacketWriteEndInfo {
 	/// No ends here, just a normal packet
 	NormalPacket,
@@ -934,8 +934,8 @@ fn test_ogg_packet_rw() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np.clone(), 0).unwrap();
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np.clone(), 1).unwrap();
+		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
@@ -962,8 +962,8 @@ fn test_ogg_packet_rw() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np.clone(), 0).unwrap();
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np.clone(), 1).unwrap();
+		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
@@ -989,7 +989,7 @@ fn test_ogg_packet_rw() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np.clone(), 1).unwrap();
+		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
@@ -1017,7 +1017,7 @@ fn test_page_end_after_first_packet() {
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(Rc::new(test_arr), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 0).unwrap();
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np.clone(), 1).unwrap();
+		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
