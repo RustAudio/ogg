@@ -1,10 +1,11 @@
 [package]
 name = "ogg"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["est31 <MTest31@outlook.com>"]
 description = "Ogg container decoder and encoder written in pure Rust"
 license = "MIT/Apache-2.0"
 keywords = ["ogg", "decoder", "encoder", "xiph"]
+documentation = "https://docs.rs/ogg/0.3.1"
 repository = "https://github.com/est31/ogg"
 readme = "README.md"
 
