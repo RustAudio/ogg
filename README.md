@@ -13,4 +13,4 @@ in fact it was only written in order to write compact testing code for the decod
 
 ## License
 
-Licensed under Apache 2 or MIT (at your option). For details, see the [LICENSE](LICENSE) file.
+Licensed under the three clause BSD license. For details, see the [LICENSE](LICENSE) file.
