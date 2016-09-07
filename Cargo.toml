@@ -17,3 +17,6 @@ byteorder = "0.5"
 
 [dev-dependencies]
 rand = "0.3"
+
+[features]
+async = []

@@ -10,6 +10,8 @@
 #![cfg_attr(test, deny(warnings))]
 #![allow(unused_parens)] // To support C-style if's
 
+#![cfg_attr(feature = "async", feature(specialization))]
+
 /*!
 Ogg container decoder and encoder
 
@@ -27,6 +29,11 @@ use byteorder::{WriteBytesExt, ReadBytesExt, LittleEndian};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem::replace;
+
+mod buf_reader;
+
+pub use buf_reader::BufReader as BufReader;
+pub use buf_reader::AdvanceAndSeekBack as AdvanceAndSeekBack;
 
 // Lookup table to enable bytewise CRC32 calculation
 // Created using the crc32-table-generate example.
@@ -267,6 +274,16 @@ impl PageInfo {
 Reader for packets from an Ogg stream.
 
 This reads codec packets belonging to several different logical streams from one physical Ogg container stream.
+
+If the `async` feature is activated, and you pass as internal reader a valid implementation of the
+`AdvanceAndSeekBack` trait, like the `BufReader` wrapper, the PacketReader will support async operation,
+meaning that its internal state doesn't get corrupted if from multiple consecutive reads which it performs,
+some fail with e.g. the WouldBlock error kind.
+
+Please note that if the `async` feature is not activated, and the BufReader (or any implementation of the trait)
+is used, it will still appear to work, but it will have leaky behaviour, with performance degrading the more has
+been read from the stream, and it may even panic in some edge cases. Therefore, you need to activate the async
+feature.
 */
 pub struct PacketReader<'a, T :io::Read + io::Seek + 'a> {
 	rdr :&'a mut T,
@@ -430,7 +447,7 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 						// We have read too much content (exceeding the header).
 						// Seek back so that we are at the position
 						// right after the header.
-						try!(self.rdr.seek(SeekFrom::Current(24 - (cnt_from_rdr_buf as i64))));
+						try!(self.seek_back(cnt_from_rdr_buf - 24));
 					} else if cnt_from_rdr_buf == 24 {
 						// All is fine. Nothing has to be done.
 					} else {
@@ -514,6 +531,8 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 
 		let mut page_data = vec![0; page_siz as usize];
 		try!(self.rdr.read_exact(&mut page_data));
+
+		self.maybe_advance();
 
 		// Now to hash calculation.
 		// 1. Clear the header buffer
@@ -634,6 +653,56 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 		}
 
 		return Ok(());
+	}
+
+	#[cfg(feature = "async")]
+	fn maybe_advance(&mut self) {
+		trait MaybeAdvance {
+			fn maybe_advance(&mut self);
+		}
+		impl<T> MaybeAdvance for T {
+			default fn maybe_advance(&mut self) { }
+		}
+		impl<T :AdvanceAndSeekBack> MaybeAdvance for T {
+			fn maybe_advance(&mut self) {
+				self.advance();
+			}
+		}
+		self.rdr.maybe_advance();
+	}
+
+	#[cfg(not(feature = "async"))]
+	fn maybe_advance(&mut self) {
+		// Do nothing ...
+	}
+
+	#[cfg(feature = "async")]
+	fn seek_back(&mut self, len :usize) -> io::Result<()> {
+		trait MaybeAdvance {
+			fn seek_back(&mut self, len :usize) -> io::Result<()>;
+		}
+		impl<T :Seek> MaybeAdvance for T {
+			default fn seek_back(&mut self, len :usize) -> io::Result<()> {
+				return match self.seek(SeekFrom::Current(-(len as i64))) {
+					Ok(_) => Ok(()),
+					Err(e) => Err(e),
+				};
+			}
+		}
+		impl<T :Seek + AdvanceAndSeekBack> MaybeAdvance for T {
+			fn seek_back(&mut self, len :usize) -> io::Result<()> {
+				return self.seek_back(len);
+			}
+		}
+		self.rdr.maybe_advance(len);
+	}
+
+	#[cfg(not(feature = "async"))]
+	fn seek_back(&mut self, len :usize) -> io::Result<()> {
+		return match self.rdr.seek(SeekFrom::Current(-(len as i64))) {
+			Ok(_) => Ok(()),
+			Err(e) => Err(e),
+		};
 	}
 
 	/// Seeks the underlying reader

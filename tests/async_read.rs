@@ -75,7 +75,8 @@ fn test_ogg_random_would_block_run() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut rwd = RandomWouldBlock(&mut c);
-		let mut r = PacketReader::new(&mut rwd);
+		let mut frwd = ogg::BufReader::new(&mut rwd);
+		let mut r = PacketReader::new(&mut frwd);
 		let p1 = continue_trying!(r.read_packet()).unwrap();
 		assert_eq!(test_arr, *p1.data);
 		let p2 = continue_trying!(r.read_packet()).unwrap();
@@ -104,7 +105,8 @@ fn test_ogg_random_would_block_run() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut rwd = RandomWouldBlock(&mut c);
-		let mut r = PacketReader::new(&mut rwd);
+		let mut frwd = ogg::BufReader::new(&mut rwd);
+		let mut r = PacketReader::new(&mut frwd);
 		let p1 = continue_trying!(r.read_packet()).unwrap();
 		assert_eq!(test_arr, *p1.data);
 		let p2 = continue_trying!(r.read_packet()).unwrap();
@@ -131,7 +133,8 @@ fn test_ogg_random_would_block_run() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut rwd = RandomWouldBlock(&mut c);
-		let mut r = PacketReader::new(&mut rwd);
+		let mut frwd = ogg::BufReader::new(&mut rwd);
+		let mut r = PacketReader::new(&mut frwd);
 		let p2 = continue_trying!(r.read_packet()).unwrap();
 		test_arr_eq!(test_arr_2, *p2.data);
 		let p3 = continue_trying!(r.read_packet()).unwrap();
