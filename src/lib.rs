@@ -689,10 +689,11 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 		}
 		impl<T :Seek + AdvanceAndSeekBack> MaybeAdvance for T {
 			fn seek_back(&mut self, len :usize) -> io::Result<()> {
-				return self.seek_back(len);
+				self.seek_back(len);
+				return Ok(());
 			}
 		}
-		self.rdr.maybe_advance(len);
+		return self.rdr.seek_back(len);
 	}
 
 	#[cfg(not(feature = "async"))]
