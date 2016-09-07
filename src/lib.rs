@@ -30,9 +30,12 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem::replace;
 
+#[cfg(feature = "async")]
 mod buf_reader;
 
+#[cfg(feature = "async")]
 pub use buf_reader::BufReader as BufReader;
+#[cfg(feature = "async")]
 pub use buf_reader::AdvanceAndSeekBack as AdvanceAndSeekBack;
 
 // Lookup table to enable bytewise CRC32 calculation
@@ -278,12 +281,7 @@ This reads codec packets belonging to several different logical streams from one
 If the `async` feature is activated, and you pass as internal reader a valid implementation of the
 `AdvanceAndSeekBack` trait, like the `BufReader` wrapper, the PacketReader will support async operation,
 meaning that its internal state doesn't get corrupted if from multiple consecutive reads which it performs,
-some fail with e.g. the WouldBlock error kind.
-
-Please note that if the `async` feature is not activated, and the BufReader (or any implementation of the trait)
-is used, it will still appear to work, but it will have leaky behaviour, with performance degrading the more has
-been read from the stream, and it may even panic in some edge cases. Therefore, you need to activate the async
-feature.
+some fail with e.g. the `WouldBlock` error kind.
 */
 pub struct PacketReader<'a, T :io::Read + io::Seek + 'a> {
 	rdr :&'a mut T,
