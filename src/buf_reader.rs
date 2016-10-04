@@ -22,19 +22,22 @@ You may use your own implementation of that trait as well, but
 for bug free operation you need to conform the rules the interface
 documentation has set.
 */
-pub struct BufReader<'a, T :Read + 'a> {
-	pub rdr :&'a mut T,
+pub struct BufReader<T :Read> {
+	rdr :T,
 	buf :Vec<u8>,
 	read_offs :usize,
 }
 
-impl <'a, T :Read> BufReader<'a, T> {
-	pub fn new(rdr :&'a mut T) -> Self {
+impl <T :Read> BufReader<T> {
+	pub fn new(rdr :T) -> Self {
 		return BufReader {
 			rdr : rdr,
 			buf : Vec::new(),
 			read_offs : 0,
 		};
+	}
+	pub fn into_inner(self) -> T {
+		self.rdr
 	}
 }
 
@@ -88,7 +91,7 @@ pub trait AdvanceAndSeekBack {
 	fn seek_back(&mut self, len :usize);
 }
 
-impl <'a, T :Read> AdvanceAndSeekBack for BufReader<'a, T> {
+impl <T :Read> AdvanceAndSeekBack for BufReader<T> {
 	/// Drops everything
 	fn advance(&mut self) {
 		self.buf = self.buf.split_off(self.read_offs);
@@ -104,7 +107,7 @@ impl <'a, T :Read> AdvanceAndSeekBack for BufReader<'a, T> {
 	}
 }
 
-impl <'a, T :Read> Read for BufReader<'a, T> {
+impl <T :Read> Read for BufReader<T> {
 
 	fn read(&mut self, buf: &mut[u8]) -> Result<usize> {
 		if self.buf.len() - self.read_offs > 0 {
@@ -130,7 +133,7 @@ impl <'a, T :Read> Read for BufReader<'a, T> {
 }
 
 use std::io::SeekFrom;
-impl <'a, T :Read + Seek> Seek for BufReader<'a, T> {
+impl <T :Read + Seek> Seek for BufReader<T> {
 	fn seek(&mut self, from :SeekFrom) -> Result<u64> {
 		if self.read_offs > 0 || self.buf.len() > 0 {
 			panic!("Seek invoked in non clean state!");

@@ -283,8 +283,8 @@ If the `async` feature is activated, and you pass as internal reader a valid imp
 meaning that its internal state doesn't get corrupted if from multiple consecutive reads which it performs,
 some fail with e.g. the `WouldBlock` error kind.
 */
-pub struct PacketReader<'a, T :io::Read + io::Seek + 'a> {
-	rdr :&'a mut T,
+pub struct PacketReader<T :io::Read + io::Seek> {
+	rdr :T,
 
 	// TODO the hashmap plus the set is perhaps smart ass perfect design but could be made more performant I guess...
 	// I mean: in > 99% of all cases we'll just have one or two streams.
@@ -303,14 +303,17 @@ pub struct PacketReader<'a, T :io::Read + io::Seek + 'a> {
 	has_seeked :bool,
 }
 
-impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
+impl<T :io::Read + io::Seek> PacketReader <T> {
 	/// Constructs a new `PacketReader` with a given `Read`.
-	pub fn new(rdr :&mut T) -> PacketReader<T> {
+	pub fn new(rdr :T) -> PacketReader<T> {
 		return PacketReader { rdr: rdr, page_infos: HashMap::new(),
 			stream_with_stuff: None, has_seeked: false };
 	}
+	pub fn into_inner(self) -> T {
+		self.rdr
+	}
 	/// Reads a packet, and returns it on success.
-	pub fn read_packet(self :&mut PacketReader <'a, T>) -> Result<Packet, OggReadError> {
+	pub fn read_packet(&mut self) -> Result<Packet, OggReadError> {
 		while self.stream_with_stuff == None {
 			try!(self.read_ogg_page());
 		}
@@ -378,7 +381,7 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 	/// If no new page header is immediately found, it performs a "recapture",
 	/// meaning it searches for the capture pattern, and if it finds it, it
 	/// reads the complete first 27 bytes of the header, and returns them.
-	fn read_until_pg_header(self :&mut PacketReader <'a, T>) -> Result<[u8; 27], OggReadError> {
+	fn read_until_pg_header(&mut self) -> Result<[u8; 27], OggReadError> {
 		let mut cpat_offs = 0;
 		// Returns the Some(off), where off is the offset of the last byte
 		// of the capture pattern if its found, None if the capture pattern
@@ -472,7 +475,7 @@ impl<'a, T :io::Read + io::Seek + 'a> PacketReader <'a, T> {
 	/// To support seeking this does not assume that the capture pattern
 	/// is at the current reader position.
 	/// Instead it searches until it finds the capture pattern.
-	fn read_ogg_page(self :&mut PacketReader <'a, T>) -> Result<(), OggReadError> {
+	fn read_ogg_page(&mut self) -> Result<(), OggReadError> {
 		let mut header_buf :[u8; 27] = try!(self.read_until_pg_header());
 		let mut header_rdr = Cursor::new(header_buf);
 		header_rdr.set_position(4);
@@ -726,8 +729,8 @@ Writer for packets into an Ogg stream.
 Note that the functionality of this struct isn't as well tested as for
 the `PacketReader` struct.
 */
-pub struct PacketWriter<'a, T :io::Write + 'a> {
-	wtr :&'a mut T,
+pub struct PacketWriter<T :io::Write> {
+	wtr :T,
 
 	page_vals :HashMap<u32, CurrentPageValues>,
 }
@@ -785,12 +788,15 @@ pub enum PacketWriteEndInfo {
 	EndStream,
 }
 
-impl <'a, T :io::Write + 'a> PacketWriter<'a, T> {
-	pub fn new(wtr :&mut T) -> PacketWriter<T> {
+impl <T :io::Write> PacketWriter<T> {
+	pub fn new(wtr :T) -> Self {
 		return PacketWriter {
 			wtr : wtr,
 			page_vals : HashMap::new(),
 		};
+	}
+	pub fn into_inner(self) -> T {
+		self.wtr
 	}
 	/// Write a packet
 	///
@@ -838,10 +844,11 @@ impl <'a, T :io::Write + 'a> PacketWriter<'a, T> {
 				if segment_i + 1 < needed_segments {
 					// We have to flush a page, but we know there are more to come...
 					pg.pck_this_overflow_idx = Some((segment_i + 1) * 255);
-					try!(PacketWriter::write_page(self.wtr, serial, pg, false, absgp));
+					try!(PacketWriter::write_page(&mut self.wtr, serial, pg,
+						false, absgp));
 				} else {
 					// We have to write a page end, and its the very last in the stream
-					try!(PacketWriter::write_page(self.wtr,
+					try!(PacketWriter::write_page(&mut self.wtr,
 						serial, pg, is_end_stream, absgp));
 					// Not actually required either
 					// (it is always None except if we set it to Some directly
@@ -856,7 +863,8 @@ impl <'a, T :io::Write + 'a> PacketWriter<'a, T> {
 		}
 		if (inf != PacketWriteEndInfo::NormalPacket) && !at_page_end {
 			// Write a page end
-			try!(PacketWriter::write_page(self.wtr, serial, pg, is_end_stream, absgp));
+			try!(PacketWriter::write_page(&mut self.wtr, serial, pg,
+				is_end_stream, absgp));
 
 			pg.pck_last_overflow_idx = None;
 
@@ -867,7 +875,7 @@ impl <'a, T :io::Write + 'a> PacketWriter<'a, T> {
 		// All went fine.
 		Ok(())
 	}
-	fn write_page(wtr :&'a mut T, serial :u32, pg :&mut CurrentPageValues,
+	fn write_page(wtr :&mut T, serial :u32, pg :&mut CurrentPageValues,
 			last_page :bool, absgp :u64)  -> IoResult<()> {
 		{
 			// The page header with everything but the lacing values:
@@ -982,9 +990,10 @@ fn test_ogg_packet_write() {
 	0xb8, 0x01u8];
 
 	{
-		let mut w = PacketWriter::new(&mut c);
+		let mut w = PacketWriter::new(c);
 		w.write_packet(Rc::new(test_arr_in), 0x5b90a374,
 			PacketWriteEndInfo::EndPage, 0).unwrap();
+		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.get_ref().len(), test_arr_out.len());
@@ -1000,17 +1009,18 @@ fn test_ogg_packet_rw() {
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
 	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
 	{
-		let mut w = PacketWriter::new(&mut c);
+		let mut w = PacketWriter::new(c);
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
 		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
+		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
-		let mut r = PacketReader::new(&mut c);
+		let mut r = PacketReader::new(c);
 		let p1 = r.read_packet().unwrap();
 		assert_eq!(test_arr, *p1.data);
 		let p2 = r.read_packet().unwrap();
@@ -1028,17 +1038,18 @@ fn test_ogg_packet_rw() {
 		*a = (idx as u8) / 4;
 	}
 	{
-		let mut w = PacketWriter::new(&mut c);
+		let mut w = PacketWriter::new(c);
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
 		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
+		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
-		let mut r = PacketReader::new(&mut c);
+		let mut r = PacketReader::new(c);
 		let p1 = r.read_packet().unwrap();
 		assert_eq!(test_arr, *p1.data);
 		let p2 = r.read_packet().unwrap();
@@ -1055,16 +1066,17 @@ fn test_ogg_packet_rw() {
 		*a = (idx as u8) / 4;
 	}
 	{
-		let mut w = PacketWriter::new(&mut c);
+		let mut w = PacketWriter::new(c);
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
+		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
-		let mut r = PacketReader::new(&mut c);
+		let mut r = PacketReader::new(c);
 		let p2 = r.read_packet().unwrap();
 		test_arr_eq!(test_arr_2, *p2.data);
 		let p3 = r.read_packet().unwrap();
@@ -1081,18 +1093,19 @@ fn test_page_end_after_first_packet() {
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
 	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
 	{
-		let mut w = PacketWriter::new(&mut c);
+		let mut w = PacketWriter::new(c);
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(Rc::new(test_arr), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 0).unwrap();
 		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
+		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
-		let mut r = PacketReader::new(&mut c);
+		let mut r = PacketReader::new(c);
 		let p1 = r.read_packet().unwrap();
 		assert_eq!(test_arr, *p1.data);
 		let p2 = r.read_packet().unwrap();
