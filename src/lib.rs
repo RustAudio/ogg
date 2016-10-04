@@ -990,10 +990,9 @@ fn test_ogg_packet_write() {
 	0xb8, 0x01u8];
 
 	{
-		let mut w = PacketWriter::new(c);
+		let mut w = PacketWriter::new(&mut c);
 		w.write_packet(Rc::new(test_arr_in), 0x5b90a374,
 			PacketWriteEndInfo::EndPage, 0).unwrap();
-		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.get_ref().len(), test_arr_out.len());
@@ -1009,13 +1008,12 @@ fn test_ogg_packet_rw() {
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
 	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
 	{
-		let mut w = PacketWriter::new(c);
+		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
 		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
-		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
@@ -1038,18 +1036,17 @@ fn test_ogg_packet_rw() {
 		*a = (idx as u8) / 4;
 	}
 	{
-		let mut w = PacketWriter::new(c);
+		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
 		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
-		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
-		let mut r = PacketReader::new(c);
+		let mut r = PacketReader::new(&mut c);
 		let p1 = r.read_packet().unwrap();
 		assert_eq!(test_arr, *p1.data);
 		let p2 = r.read_packet().unwrap();
@@ -1066,12 +1063,11 @@ fn test_ogg_packet_rw() {
 		*a = (idx as u8) / 4;
 	}
 	{
-		let mut w = PacketWriter::new(c);
+		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
-		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
@@ -1093,14 +1089,13 @@ fn test_page_end_after_first_packet() {
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
 	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
 	{
-		let mut w = PacketWriter::new(c);
+		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(Rc::new(test_arr), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 0).unwrap();
 		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
 		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
-		c = w.into_inner();
 	}
 	//print_u8_slice(c.get_ref());
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
