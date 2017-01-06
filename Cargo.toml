@@ -13,7 +13,7 @@ readme = "README.md"
 name = "ogg"
 
 [dependencies]
-byteorder = "0.5"
+byteorder = "1.0"
 
 [dev-dependencies]
 rand = "0.3"
