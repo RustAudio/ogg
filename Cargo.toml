@@ -6,7 +6,7 @@ description = "Ogg container decoder and encoder written in pure Rust"
 license = "BSD-3-Clause"
 keywords = ["ogg", "decoder", "encoder", "xiph"]
 documentation = "https://docs.rs/ogg/0.4.1"
-repository = "https://github.com/est31/ogg"
+repository = "https://github.com/RustAudio/ogg"
 readme = "README.md"
 
 [lib]
