@@ -6,6 +6,8 @@
 // specified in the LICENSE file attached to this
 // source distribution.
 
+#![cfg(feature = "async")]
+
 extern crate ogg;
 extern crate rand;
 
