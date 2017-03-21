@@ -138,7 +138,7 @@ and `parse_packet_data` functions, each called exactly once and in that precise 
 
 Then later code uses the struct's contents.
 */
-struct PageParser {
+pub struct PageParser {
 	// Members packet_positions and packet_count
 	// get populated after segments have been parsed
 	bi :PageBaseInfo,
@@ -165,7 +165,7 @@ impl PageParser {
 	/// Returns a page parser, and the requested size of the segments array.
 	/// You should allocate and fill such an array, in order to pass it to the `parse_segments`
 	/// function.
-	fn new(header_buf :[u8; 27]) -> Result<(PageParser, usize), OggReadError> {
+	pub fn new(header_buf :[u8; 27]) -> Result<(PageParser, usize), OggReadError> {
 		let mut header_rdr = Cursor::new(header_buf);
 		header_rdr.set_position(4);
 		let stream_structure_version = try!(header_rdr.read_u8());
@@ -201,7 +201,7 @@ impl PageParser {
 
 	/// Parses the segments buffer, and returns the requested size
 	/// of the packets content array.
-	fn parse_segments(&mut self, segments_buf :Vec<u8>) -> usize {
+	pub fn parse_segments(&mut self, segments_buf :Vec<u8>) -> usize {
 		let mut page_siz :u16 = 0; // Size of the page's body
 		// Whether our page ends with a continued packet
 		self.bi.ends_with_continued = self.bi.starts_with_continued;
@@ -244,7 +244,7 @@ impl PageParser {
 	///
 	/// Only after this function has been called (and before it `parse_segments`)
 	/// you should pass on the `PageParser` to later code.
-	fn parse_packet_data(&mut self, packet_data :Vec<u8>) -> Result<(), OggReadError> {
+	pub fn parse_packet_data(&mut self, packet_data :Vec<u8>) -> Result<(), OggReadError> {
 		// Now to hash calculation.
 		// 1. Clear the header buffer
 		self.header_buf[22] = 0;
@@ -269,18 +269,19 @@ impl PageParser {
 }
 
 /**
-Reader for packets from an Ogg stream.
+Low level struct for reading from an Ogg stream.
 
-This reads codec packets belonging to several different logical streams from one physical Ogg container stream.
+Note that most times you'll want the higher level `PageReader` struct.
 
-If the `async` feature is activated, and you pass as internal reader a valid implementation of the
-`AdvanceAndSeekBack` trait, like the `BufReader` wrapper, the PacketReader will support async operation,
-meaning that its internal state doesn't get corrupted if from multiple consecutive reads which it performs,
-some fail with e.g. the `WouldBlock` error kind.
+It takes care of most of the internal parsing and logic, you
+will only have to take care of handing over your data.
+
+Essentially, it manages a cache of package data for each logical
+bitstream, and when the cache of every logical bistream is empty,
+it asks for a fresh page. You will then need to feed the struct
+one via the `push_page` function.
 */
-pub struct PacketReader<T :io::Read + io::Seek> {
-	rdr :T,
-
+pub struct BasePacketReader {
 	// TODO the hashmap plus the set is perhaps smart ass perfect design but could be made more performant I guess...
 	// I mean: in > 99% of all cases we'll just have one or two streams.
 	// AND: their setup changes only very rarely.
@@ -298,20 +299,20 @@ pub struct PacketReader<T :io::Read + io::Seek> {
 	has_seeked :bool,
 }
 
-impl<T :io::Read + io::Seek> PacketReader <T> {
-	/// Constructs a new `PacketReader` with a given `Read`.
-	pub fn new(rdr :T) -> PacketReader<T> {
-		return PacketReader { rdr: rdr, page_infos: HashMap::new(),
-			stream_with_stuff: None, has_seeked: false };
+impl BasePacketReader {
+	/// Constructs a new `BasePacketReader`.
+	pub fn new() -> Self {
+		BasePacketReader { page_infos: HashMap::new(),
+			stream_with_stuff: None, has_seeked: false }
 	}
-	pub fn into_inner(self) -> T {
-		self.rdr
-	}
-	/// Reads a packet, and returns it on success.
-	pub fn read_packet(&mut self) -> Result<Packet, OggReadError> {
-		while self.stream_with_stuff == None {
-			let page = try!(self.read_ogg_page());
-			try!(self.push_page(page));
+	/// Extracts a packet from the cache, if the cache contains valid packet data,
+	/// otherwise it returns `None`.
+	///
+	/// If this function returns `None`, you'll need to add a page to the cache
+	/// by using the `push_page` function.
+	pub fn read_packet(&mut self) -> Option<Packet> {
+		if self.stream_with_stuff == None {
+			return None;
 		}
 		let str_serial :u32 = self.stream_with_stuff.unwrap();
 		let mut pg_info = self.page_infos.get_mut(&str_serial).unwrap();
@@ -363,13 +364,158 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 			self.stream_with_stuff = None;
 		}
 
-		return Ok(Packet {
+		return Some(Packet {
 			data: packet_content,
 			first_packet: first_pck_overall,
 			last_packet: last_pck_overall,
 			absgp_page: pg_info.bi.absgp,
 			stream_serial: str_serial,
 		});
+	}
+
+	/// Pushes a given Ogg page, updating the internal structures
+	/// with its contents.
+	pub fn push_page(&mut self, mut pg_prs :PageParser) -> Result<(), OggReadError> {
+		match self.page_infos.entry(pg_prs.stream_serial) {
+			Entry::Occupied(mut o) => {
+				let inf = o.get_mut();
+				if pg_prs.bi.first_page {
+					try!(Err(OggReadError::InvalidData));
+				}
+				if pg_prs.bi.starts_with_continued != inf.bi.ends_with_continued {
+					if !self.has_seeked {
+						try!(Err(OggReadError::InvalidData));
+					} else {
+						// If we have seeked, we are more tolerant here,
+						// and just drop the continued packet's content.
+
+						inf.last_overlap_pck.clear();
+						if pg_prs.bi.starts_with_continued {
+							pg_prs.bi.packet_positions.remove(0);
+							if pg_prs.packet_count != 0 {
+								// Decrease packet count by one. Normal case.
+								pg_prs.packet_count -= 1;
+							} else {
+								// If the packet count is 0, this means
+								// that we start and end with the same continued packet.
+								// So now as we ignore that packet, we must clear the
+								// ends_with_continued state as well.
+								pg_prs.bi.ends_with_continued = false;
+							}
+						}
+					}
+				} else if pg_prs.bi.starts_with_continued {
+					// Remember the packet at the end so that it can be glued together once
+					// we encounter the next segment with length < 255 (doesnt have to be in this page)
+					let (offs, len) = inf.bi.packet_positions[inf.packet_idx as usize];
+					if len as usize != inf.page_body.len() {
+						let mut tmp = Vec::with_capacity(len as usize);
+						tmp.write_all(&inf.page_body[offs as usize .. (offs + len) as usize]).unwrap();
+						inf.last_overlap_pck.push(tmp);
+					} else {
+						// Little optimisation: don't copy if not neccessary
+						inf.last_overlap_pck.push(replace(&mut inf.page_body, vec![0;0]));
+					}
+
+				}
+				inf.bi = pg_prs.bi;
+				inf.packet_idx = 0;
+				inf.page_body = pg_prs.segments_or_packets_buf;
+			},
+			Entry::Vacant(v) => {
+				if !self.has_seeked {
+					if (!pg_prs.bi.first_page || pg_prs.bi.starts_with_continued) {
+						// If we haven't seeked, this is an error.
+						try!(Err(OggReadError::InvalidData));
+					}
+				} else {
+					if !pg_prs.bi.first_page {
+						// we can just ignore this.
+					}
+					if pg_prs.bi.starts_with_continued {
+						// Ignore the continued packet's content.
+						// This is a normal occurence if we have just seeked.
+						pg_prs.bi.packet_positions.remove(0);
+						if pg_prs.packet_count != 0 {
+							// Decrease packet count by one. Normal case.
+							pg_prs.packet_count -= 1;
+						} else {
+							// If the packet count is 0, this means
+							// that we start and end with the same continued packet.
+							// So now as we ignore that packet, we must clear the
+							// ends_with_continued state as well.
+							pg_prs.bi.ends_with_continued = false;
+						}
+					}
+				}
+				v.insert(PageInfo {
+					bi : pg_prs.bi,
+					packet_idx: 0,
+					page_body: pg_prs.segments_or_packets_buf,
+					last_overlap_pck: Vec::new(),
+				});
+			},
+		}
+		let pg_has_stuff :bool = pg_prs.packet_count > 0;
+
+		if pg_has_stuff {
+			self.stream_with_stuff = Some(pg_prs.stream_serial);
+		} else {
+			self.stream_with_stuff = None;
+		}
+
+		return Ok(());
+	}
+
+	/// Reset the internal state after a seek
+	///
+	/// It flushes the cache so that no partial data is left inside.
+	/// It also tells the parsing logic to expect little inconsistencies
+	/// due to the read position not being at the start.
+	pub fn update_after_seek(&mut self) {
+		self.stream_with_stuff = None;
+		self.page_infos = HashMap::new();
+		self.has_seeked = true;
+	}
+}
+
+/**
+Reader for packets from an Ogg stream.
+
+This reads codec packets belonging to several different logical streams from one physical Ogg container stream.
+
+If the `async` feature is activated, and you pass as internal reader a valid implementation of the
+`AdvanceAndSeekBack` trait, like the `BufReader` wrapper, the PacketReader will support async operation,
+meaning that its internal state doesn't get corrupted if from multiple consecutive reads which it performs,
+some fail with e.g. the `WouldBlock` error kind.
+*/
+pub struct PacketReader<T :io::Read + io::Seek> {
+	rdr :T,
+
+	base_pck_rdr :BasePacketReader,
+}
+
+impl<T :io::Read + io::Seek> PacketReader <T> {
+	/// Constructs a new `PacketReader` with a given `Read`.
+	pub fn new(rdr :T) -> PacketReader<T> {
+		PacketReader { rdr: rdr, base_pck_rdr : BasePacketReader::new() }
+	}
+	/// Returns the wrapped reader, consuming the `PacketReader`.
+	pub fn into_inner(self) -> T {
+		self.rdr
+	}
+	/// Reads a packet, and returns it on success.
+	pub fn read_packet(&mut self) -> Result<Packet, OggReadError> {
+		// Read pages until we got a valid entire packet
+		// (packets may span multiple pages, so reading one page
+		// doesn't always suffice to give us a valid packet)
+		loop {
+			if let Some(pck) = self.base_pck_rdr.read_packet() {
+				return Ok(pck);
+			}
+			let page = try!(self.read_ogg_page());
+			try!(self.base_pck_rdr.push_page(page));
+		}
 	}
 
 	/// Reads until the new page header, and then returns the page header array.
@@ -489,101 +635,6 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 		Ok(pg_prs)
 	}
 
-	/// Pushes a given OGG page, updating the internal structures
-	/// with its contents.
-	fn push_page(&mut self, mut pg_prs :PageParser) -> Result<(), OggReadError> {
-
-		match self.page_infos.entry(pg_prs.stream_serial) {
-			Entry::Occupied(mut o) => {
-				let inf = o.get_mut();
-				if pg_prs.bi.first_page {
-					try!(Err(OggReadError::InvalidData));
-				}
-				if pg_prs.bi.starts_with_continued != inf.bi.ends_with_continued {
-					if !self.has_seeked {
-						try!(Err(OggReadError::InvalidData));
-					} else {
-						// If we have seeked, we are more tolerant here,
-						// and just drop the continued packet's content.
-
-						inf.last_overlap_pck.clear();
-						if pg_prs.bi.starts_with_continued {
-							pg_prs.bi.packet_positions.remove(0);
-							if pg_prs.packet_count != 0 {
-								// Decrease packet count by one. Normal case.
-								pg_prs.packet_count -= 1;
-							} else {
-								// If the packet count is 0, this means
-								// that we start and end with the same continued packet.
-								// So now as we ignore that packet, we must clear the
-								// ends_with_continued state as well.
-								pg_prs.bi.ends_with_continued = false;
-							}
-						}
-					}
-				} else if pg_prs.bi.starts_with_continued {
-					// Remember the packet at the end so that it can be glued together once
-					// we encounter the next segment with length < 255 (doesnt have to be in this page)
-					let (offs, len) = inf.bi.packet_positions[inf.packet_idx as usize];
-					if len as usize != inf.page_body.len() {
-						let mut tmp = Vec::with_capacity(len as usize);
-						tmp.write_all(&inf.page_body[offs as usize .. (offs + len) as usize]).unwrap();
-						inf.last_overlap_pck.push(tmp);
-					} else {
-						// Little optimisation: don't copy if not neccessary
-						inf.last_overlap_pck.push(replace(&mut inf.page_body, vec![0;0]));
-					}
-
-				}
-				inf.bi = pg_prs.bi;
-				inf.packet_idx = 0;
-				inf.page_body = pg_prs.segments_or_packets_buf;
-			},
-			Entry::Vacant(v) => {
-				if !self.has_seeked {
-					if (!pg_prs.bi.first_page || pg_prs.bi.starts_with_continued) {
-						// If we haven't seeked, this is an error.
-						try!(Err(OggReadError::InvalidData));
-					}
-				} else {
-					if !pg_prs.bi.first_page {
-						// we can just ignore this.
-					}
-					if pg_prs.bi.starts_with_continued {
-						// Ignore the continued packet's content.
-						// This is a normal occurence if we have just seeked.
-						pg_prs.bi.packet_positions.remove(0);
-						if pg_prs.packet_count != 0 {
-							// Decrease packet count by one. Normal case.
-							pg_prs.packet_count -= 1;
-						} else {
-							// If the packet count is 0, this means
-							// that we start and end with the same continued packet.
-							// So now as we ignore that packet, we must clear the
-							// ends_with_continued state as well.
-							pg_prs.bi.ends_with_continued = false;
-						}
-					}
-				}
-				v.insert(PageInfo {
-					bi : pg_prs.bi,
-					packet_idx: 0,
-					page_body: pg_prs.segments_or_packets_buf,
-					last_overlap_pck: Vec::new(),
-				});
-			},
-		}
-		let pg_has_stuff :bool = pg_prs.packet_count > 0;
-
-		if pg_has_stuff {
-			self.stream_with_stuff = Some(pg_prs.stream_serial);
-		} else {
-			self.stream_with_stuff = None;
-		}
-
-		return Ok(());
-	}
-
 	#[cfg(feature = "async")]
 	fn maybe_advance(&mut self) {
 		trait MaybeAdvance {
@@ -644,9 +695,7 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 	pub fn seek_bytes(&mut self, pos :SeekFrom) -> Result<u64, Error> {
 		let r = try!(self.rdr.seek(pos));
 		// Reset the internal state
-		self.stream_with_stuff = None;
-		self.page_infos = HashMap::new();
-		self.has_seeked = true;
+		self.base_pck_rdr.update_after_seek();
 		return Ok(r);
 	}
 }
