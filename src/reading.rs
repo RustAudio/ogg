@@ -201,6 +201,9 @@ impl PageParser {
 
 	/// Parses the segments buffer, and returns the requested size
 	/// of the packets content array.
+	///
+	/// You should allocate and fill such an array, in order to pass it to the `parse_packet_data`
+	/// function.
 	pub fn parse_segments(&mut self, segments_buf :Vec<u8>) -> usize {
 		let mut page_siz :u16 = 0; // Size of the page's body
 		// Whether our page ends with a continued packet
@@ -242,7 +245,7 @@ impl PageParser {
 
 	/// Parses the packets data and verifies the checksum.
 	///
-	/// Only after this function has been called (and before it `parse_segments`)
+	/// Only after this function has been called
 	/// you should pass on the `PageParser` to later code.
 	pub fn parse_packet_data(&mut self, packet_data :Vec<u8>) -> Result<(), OggReadError> {
 		// Now to hash calculation.
@@ -280,6 +283,9 @@ Essentially, it manages a cache of package data for each logical
 bitstream, and when the cache of every logical bistream is empty,
 it asks for a fresh page. You will then need to feed the struct
 one via the `push_page` function.
+
+This function is async ready in any way. It gets its data fed, instead
+of calling and blocking on lower level functionality to get it.
 */
 pub struct BasePacketReader {
 	// TODO the hashmap plus the set is perhaps smart ass perfect design but could be made more performant I guess...
@@ -300,7 +306,10 @@ pub struct BasePacketReader {
 }
 
 impl BasePacketReader {
-	/// Constructs a new `BasePacketReader`.
+	/// Constructs a new blank `BasePacketReader`.
+	///
+	/// You can feed it data using the `push_page` function, and
+	/// obtain data using the `read_packet` function.
 	pub fn new() -> Self {
 		BasePacketReader { page_infos: HashMap::new(),
 			stream_with_stuff: None, has_seeked: false }
@@ -375,6 +384,10 @@ impl BasePacketReader {
 
 	/// Pushes a given Ogg page, updating the internal structures
 	/// with its contents.
+	///
+	/// If you want the code to function properly, you should first call
+	/// `parse_segments`, then `parse_packet_data` on the `PageParser`
+	/// before passing it to this function.
 	pub fn push_page(&mut self, mut pg_prs :PageParser) -> Result<(), OggReadError> {
 		match self.page_infos.entry(pg_prs.stream_serial) {
 			Entry::Occupied(mut o) => {
