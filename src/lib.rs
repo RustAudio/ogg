@@ -180,30 +180,39 @@ impl PageInfo {
 
 /**
 Helper struct for parsing pages
+
+Its created using the `new` function and then its fed more data via the `parse_segments`
+and `parse_packet_data` functions, each called exactly once and in that precise order.
+
+Then later code uses the struct's contents.
 */
 struct PageParser {
 	// Members packet_positions and packet_count
-	// get populated in the SegmentsRead state
+	// get populated after segments have been parsed
 	bi :PageBaseInfo,
 
 	stream_serial :u32,
 	checksum :u32,
-	state :PageParserState,
 	header_buf: [u8; 27],
 	/// Number of packet ending segments
-	packet_count :u16, // Gets populated in the SegmentsRead state
-	/// in the SegmentsRead state, this contains the segments buffer,
-	/// in the PgDataRead state, this contains the packets buffer.
+	packet_count :u16, // Gets populated gafter segments have been parsed
+	/// after segments have been parsed, this contains the segments buffer,
+	/// after the packet data have been read, this contains the packets buffer.
 	segments_or_packets_buf :Vec<u8>,
 }
 
-enum PageParserState {
-	Created,
-	SegmentsRead,
-	PgDataRead,
-}
-
 impl PageParser {
+	/// Creates a new Page parser
+	///
+	/// The `header_buf` param contains the first 27 bytes of a new OGG page.
+	/// Determining when one begins is your responsibility. Usually they
+	/// begin directly after the end of a previous OGG page, but
+	/// after you've performed a seek you might end up within the middle of a page
+	/// and need to recapture.
+	///
+	/// Returns a page parser, and the requested size of the segments array.
+	/// You should allocate and fill such an array, in order to pass it to the `parse_segments`
+	/// function.
 	fn new(header_buf :[u8; 27]) -> Result<(PageParser, usize), OggReadError> {
 		let mut header_rdr = Cursor::new(header_buf);
 		header_rdr.set_position(4);
@@ -229,7 +238,6 @@ impl PageParser {
 			},
 			stream_serial,
 			checksum : header_rdr.read_u32::<LittleEndian>().unwrap(),
-			state : PageParserState::Created,
 			header_buf : header_buf,
 			packet_count : 0,
 			segments_or_packets_buf :Vec::new(),
@@ -239,11 +247,9 @@ impl PageParser {
 		))
 	}
 
+	/// Parses the segments buffer, and returns the requested size
+	/// of the packets content array.
 	fn parse_segments(&mut self, segments_buf :Vec<u8>) -> usize {
-		if self.state != PageParserState::Created {
-			panic!("page parser is in invalid state!");
-		}
-
 		let mut page_siz :u16 = 0; // Size of the page's body
 		// Whether our page ends with a continued packet
 		self.bi.ends_with_continued = self.bi.starts_with_continued;
@@ -279,15 +285,14 @@ impl PageParser {
 
 		self.bi.packet_positions = packets;
 		self.segments_or_packets_buf = segments_buf;
-		self.state = PageParserState::SegmentsRead;
 		page_siz as usize
 	}
 
+	/// Parses the packets data and verifies the checksum.
+	///
+	/// Only after this function has been called (and before it `parse_segments`)
+	/// you should pass on the `PageParser` to later code.
 	fn parse_packet_data(&mut self, packet_data :Vec<u8>) -> Result<(), OggReadError> {
-		if self.state != PageParserState::SegmentsRead {
-			panic!("page parser is in invalid state!");
-		}
-
 		// Now to hash calculation.
 		// 1. Clear the header buffer
 		self.header_buf[22] = 0;
@@ -307,7 +312,6 @@ impl PageParser {
 			try!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
 		}
 		self.segments_or_packets_buf = packet_data;
-		self.state = PageParserState::PgDataRead;
 		Ok(())
 	}
 }
