@@ -122,28 +122,34 @@ pub struct Packet {
 	pub sequence_num :u64,*/ // TODO perhaps add this later on...
 }
 
-/// Internal helper struct for PacketReader state
-struct PageInfo {
-	/// `true` is the first packet is continued from the page before and `false` if its a "fresh" one
+/// Containing information about an OGG page that is shared between multiple places
+struct PageBaseInfo {
+	/// `true`: the first packet is continued from the page before. `false`: if its a "fresh" one
 	starts_with_continued :bool,
 	/// `true` if this page is the first one in the logical bitstream
 	first_page :bool,
 	/// `true` if this page is the last one in the logical bitstream
 	last_page :bool,
-	/// Absolute granule position of last read page. The codec defines further meaning.
-	last_absgp :u64,
-	/// Page counter of last page read
+	/// Absolute granule position. The codec defines further meaning.
+	absgp :u64,
+	/// Page counter
+	#[allow(unused)]
 	sequence_num :u32,
-
 	/// Packet information:
 	/// index is number of packet,
 	/// tuple is (offset, length) of packet
 	/// if ends_with_continued is true, the last element will contain information
 	/// about the continued packet
 	packet_positions :Vec<(u16,u16)>,
-	/// `true` if the last packet is continued in subsequent page(s)
-	/// `false` if the last packet has a segment of length < 255 inside this page
+	/// `true` if the packet is continued in subsequent page(s)
+	/// `false` if the packet has a segment of length < 255 inside this page
 	ends_with_continued :bool,
+}
+
+/// Internal helper struct for PacketReader state
+struct PageInfo {
+	/// Basic information about the last read page
+	bi :PageBaseInfo,
 	/// The index of the first "unread" packet
 	packet_idx :u8,
 	/// Contains the package data
@@ -167,8 +173,8 @@ impl PageInfo {
 	/// If the first "unread" packet isn't completed in this page
 	/// (spans page borders), this returns `false`.
 	fn is_last_pck_in_pg(self :&PageInfo) -> bool {
-		return ((self.packet_idx + 1 + (self.ends_with_continued as u8)) as usize
-			== self.packet_positions.len());
+		return ((self.packet_idx + 1 + (self.bi.ends_with_continued as u8)) as usize
+			== self.bi.packet_positions.len());
 	}
 }
 
@@ -176,15 +182,14 @@ impl PageInfo {
 Helper struct for parsing pages
 */
 struct PageParser {
-	header_type_flag :u8,
-	absgp :u64,
+	// Members packet_positions and packet_count
+	// get populated in the SegmentsRead state
+	bi :PageBaseInfo,
+
 	stream_serial :u32,
-	sequence_num :u32,
 	checksum :u32,
 	state :PageParserState,
 	header_buf: [u8; 27],
-	packet_positions :Vec<(u16,u16)>, // Gets populated in the SegmentsRead state
-	ends_with_continued :bool, // Gets populated in the SegmentsRead state
 	/// Number of packet ending segments
 	packet_count :u16, // Gets populated in the SegmentsRead state
 	/// in the SegmentsRead state, this contains the segments buffer,
@@ -206,16 +211,26 @@ impl PageParser {
 		if stream_structure_version != 0 {
 			try!(Err(OggReadError::InvalidStreamStructVer(stream_structure_version)));
 		}
+		let header_type_flag = header_rdr.read_u8().unwrap();
+		let stream_serial;
+
 		Ok((PageParser {
-			header_type_flag : header_rdr.read_u8().unwrap(),
-			absgp : header_rdr.read_u64::<LittleEndian>().unwrap(),
-			stream_serial : header_rdr.read_u32::<LittleEndian>().unwrap(),
-			sequence_num : header_rdr.read_u32::<LittleEndian>().unwrap(),
+			bi : PageBaseInfo {
+				starts_with_continued : header_type_flag & 0x01u8 != 0,
+				first_page : header_type_flag & 0x02u8 != 0,
+				last_page : header_type_flag & 0x04u8 != 0,
+				absgp : header_rdr.read_u64::<LittleEndian>().unwrap(),
+				sequence_num : {
+					stream_serial = header_rdr.read_u32::<LittleEndian>().unwrap();
+					header_rdr.read_u32::<LittleEndian>().unwrap()
+				},
+				packet_positions : Vec::new(),
+				ends_with_continued : false,
+			},
+			stream_serial,
 			checksum : header_rdr.read_u32::<LittleEndian>().unwrap(),
 			state : PageParserState::Created,
 			header_buf : header_buf,
-			packet_positions : Vec::new(),
-			ends_with_continued : false,
 			packet_count : 0,
 			segments_or_packets_buf :Vec::new(),
 		},
@@ -224,26 +239,11 @@ impl PageParser {
 		))
 	}
 
-	/// Whether the first packet in this page is a continued one
-	fn continued_packet(&self) -> bool {
-		self.header_type_flag & 0x01u8 != 0
-	}
-
-	/// Whether this is the first page in the logical bitstream
-	fn first_page(&self) -> bool {
-		self.header_type_flag & 0x02u8 != 0
-	}
-
-	/// Whether this is the last page in the logical bitstream
-	fn last_page(&self) -> bool {
-		self.header_type_flag & 0x04u8 != 0
-	}
-
 	fn parse_segments(&mut self, segments_buf :Vec<u8>) -> usize {
 		if let PageParserState::Created = self.state {
 			let mut page_siz :u16 = 0; // Size of the page's body
 			// Whether our page ends with a continued packet
-			self.ends_with_continued = self.continued_packet();
+			self.bi.ends_with_continued = self.bi.starts_with_continued;
 
 			// First run: get the number of packets,
 			// whether the page ends with a continued packet,
@@ -252,11 +252,11 @@ impl PageParser {
 				page_siz += *val as u16;
 				// Increment by 1 if val < 255, otherwise by 0
 				self.packet_count += (*val < 255) as u16;
-				self.ends_with_continued = !(*val < 255);
+				self.bi.ends_with_continued = !(*val < 255);
 			}
 
 			let mut packets = Vec::with_capacity(self.packet_count as usize
-				+ self.ends_with_continued as usize);
+				+ self.bi.ends_with_continued as usize);
 			let mut cur_packet_siz :u16 = 0;
 			let mut cur_packet_offs :u16 = 0;
 
@@ -270,11 +270,11 @@ impl PageParser {
 					cur_packet_siz = 0;
 				}
 			}
-			if self.ends_with_continued {
+			if self.bi.ends_with_continued {
 				packets.push((cur_packet_offs, cur_packet_siz));
 			}
 
-			self.packet_positions = packets;
+			self.bi.packet_positions = packets;
 			self.segments_or_packets_buf = segments_buf;
 			self.state = PageParserState::SegmentsRead;
 			page_siz as usize
@@ -358,12 +358,12 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 		}
 		let str_serial :u32 = self.stream_with_stuff.unwrap();
 		let mut pg_info = self.page_infos.get_mut(&str_serial).unwrap();
-		let (offs, len) = pg_info.packet_positions[pg_info.packet_idx as usize];
+		let (offs, len) = pg_info.bi.packet_positions[pg_info.packet_idx as usize];
 		// If there is a continued packet, and we are at the start right now,
 		// and we actually have its end in the current page, glue it together.
 		let packet_content :Vec<u8> = if (
-				pg_info.packet_idx == 0 && pg_info.starts_with_continued
-				&& !(pg_info.ends_with_continued && pg_info.packet_positions.len() == 1)
+				pg_info.packet_idx == 0 && pg_info.bi.starts_with_continued
+				&& !(pg_info.bi.ends_with_continued && pg_info.bi.packet_positions.len() == 1)
 		) {
 			// First find out the size of our spanning packet
 			let mut siz :usize = 0;
@@ -393,10 +393,10 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 		};
 
 		let first_pck_in_pg = pg_info.is_first_pck_in_pg();
-		let first_pck_overall = pg_info.first_page && first_pck_in_pg;
+		let first_pck_overall = pg_info.bi.first_page && first_pck_in_pg;
 
 		let last_pck_in_pg = pg_info.is_last_pck_in_pg();
-		let last_pck_overall = pg_info.last_page && last_pck_in_pg;
+		let last_pck_overall = pg_info.bi.last_page && last_pck_in_pg;
 
 		// Update the last read index.
 		pg_info.packet_idx += 1;
@@ -410,7 +410,7 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 			data: packet_content,
 			first_packet: first_pck_overall,
 			last_packet: last_pck_overall,
-			absgp_page: pg_info.last_absgp,
+			absgp_page: pg_info.bi.absgp,
 			stream_serial: str_serial,
 		});
 	}
@@ -533,10 +533,10 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 		match self.page_infos.entry(pg_prs.stream_serial) {
 			Entry::Occupied(mut o) => {
 				let inf = o.get_mut();
-				if pg_prs.first_page() {
+				if pg_prs.bi.first_page {
 					try!(Err(OggReadError::InvalidData));
 				}
-				if pg_prs.continued_packet() != inf.ends_with_continued {
+				if pg_prs.bi.starts_with_continued != inf.bi.ends_with_continued {
 					if !self.has_seeked {
 						try!(Err(OggReadError::InvalidData));
 					} else {
@@ -544,8 +544,8 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 						// and just drop the continued packet's content.
 
 						inf.last_overlap_pck.clear();
-						if pg_prs.continued_packet() {
-							pg_prs.packet_positions.remove(0);
+						if pg_prs.bi.starts_with_continued {
+							pg_prs.bi.packet_positions.remove(0);
 							if pg_prs.packet_count != 0 {
 								// Decrease packet count by one. Normal case.
 								pg_prs.packet_count -= 1;
@@ -554,14 +554,14 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 								// that we start and end with the same continued packet.
 								// So now as we ignore that packet, we must clear the
 								// ends_with_continued state as well.
-								pg_prs.ends_with_continued = false;
+								pg_prs.bi.ends_with_continued = false;
 							}
 						}
 					}
-				} else if pg_prs.continued_packet() {
+				} else if pg_prs.bi.starts_with_continued {
 					// Remember the packet at the end so that it can be glued together once
 					// we encounter the next segment with length < 255 (doesnt have to be in this page)
-					let (offs, len) = inf.packet_positions[inf.packet_idx as usize];
+					let (offs, len) = inf.bi.packet_positions[inf.packet_idx as usize];
 					if len as usize != inf.page_body.len() {
 						let mut tmp = Vec::with_capacity(len as usize);
 						tmp.write_all(&inf.page_body[offs as usize .. (offs + len) as usize]).unwrap();
@@ -572,30 +572,24 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 					}
 
 				}
-				inf.starts_with_continued = pg_prs.continued_packet();
-				inf.first_page = pg_prs.first_page();
-				inf.last_page = pg_prs.last_page();
-				inf.last_absgp = pg_prs.absgp;
-				inf.sequence_num = pg_prs.sequence_num;
-				inf.packet_positions = pg_prs.packet_positions;
-				inf.ends_with_continued = pg_prs.ends_with_continued;
+				inf.bi = pg_prs.bi;
 				inf.packet_idx = 0;
 				inf.page_body = pg_prs.segments_or_packets_buf;
 			},
 			Entry::Vacant(v) => {
 				if !self.has_seeked {
-					if (!pg_prs.first_page() || pg_prs.continued_packet()) {
+					if (!pg_prs.bi.first_page || pg_prs.bi.starts_with_continued) {
 						// If we haven't seeked, this is an error.
 						try!(Err(OggReadError::InvalidData));
 					}
 				} else {
-					if !pg_prs.first_page() {
+					if !pg_prs.bi.first_page {
 						// we can just ignore this.
 					}
-					if pg_prs.continued_packet() {
+					if pg_prs.bi.starts_with_continued {
 						// Ignore the continued packet's content.
 						// This is a normal occurence if we have just seeked.
-						pg_prs.packet_positions.remove(0);
+						pg_prs.bi.packet_positions.remove(0);
 						if pg_prs.packet_count != 0 {
 							// Decrease packet count by one. Normal case.
 							pg_prs.packet_count -= 1;
@@ -604,18 +598,12 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 							// that we start and end with the same continued packet.
 							// So now as we ignore that packet, we must clear the
 							// ends_with_continued state as well.
-							pg_prs.ends_with_continued = false;
+							pg_prs.bi.ends_with_continued = false;
 						}
 					}
 				}
 				v.insert(PageInfo {
-					starts_with_continued: pg_prs.continued_packet(),
-					first_page: pg_prs.first_page(),
-					last_page: pg_prs.last_page(),
-					last_absgp: pg_prs.absgp,
-					sequence_num: pg_prs.sequence_num,
-					packet_positions: pg_prs.packet_positions,
-					ends_with_continued: pg_prs.ends_with_continued,
+					bi : pg_prs.bi,
 					packet_idx: 0,
 					page_body: pg_prs.segments_or_packets_buf,
 					last_overlap_pck: Vec::new(),
