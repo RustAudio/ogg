@@ -39,8 +39,8 @@ macro_rules! test_arr_eq {
 mod buf_reader;
 
 mod crc;
-mod reading;
-mod writing;
+pub mod reading;
+pub mod writing;
 
 pub use writing::{PacketWriter, PacketWriteEndInfo};
 pub use reading::{PacketReader, OggReadError};
