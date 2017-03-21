@@ -240,75 +240,75 @@ impl PageParser {
 	}
 
 	fn parse_segments(&mut self, segments_buf :Vec<u8>) -> usize {
-		if let PageParserState::Created = self.state {
-			let mut page_siz :u16 = 0; // Size of the page's body
-			// Whether our page ends with a continued packet
-			self.bi.ends_with_continued = self.bi.starts_with_continued;
-
-			// First run: get the number of packets,
-			// whether the page ends with a continued packet,
-			// and the size of the page's body
-			for val in &segments_buf {
-				page_siz += *val as u16;
-				// Increment by 1 if val < 255, otherwise by 0
-				self.packet_count += (*val < 255) as u16;
-				self.bi.ends_with_continued = !(*val < 255);
-			}
-
-			let mut packets = Vec::with_capacity(self.packet_count as usize
-				+ self.bi.ends_with_continued as usize);
-			let mut cur_packet_siz :u16 = 0;
-			let mut cur_packet_offs :u16 = 0;
-
-			// Second run: get the offsets of the packets
-			// Not that we need it right now, but its much more fun this way, am I right
-			for val in &segments_buf {
-				cur_packet_siz += *val as u16;
-				if *val < 255 {
-					packets.push((cur_packet_offs, cur_packet_siz));
-					cur_packet_offs += cur_packet_siz;
-					cur_packet_siz = 0;
-				}
-			}
-			if self.bi.ends_with_continued {
-				packets.push((cur_packet_offs, cur_packet_siz));
-			}
-
-			self.bi.packet_positions = packets;
-			self.segments_or_packets_buf = segments_buf;
-			self.state = PageParserState::SegmentsRead;
-			page_siz as usize
-		} else {
+		if self.state != PageParserState::Created {
 			panic!("page parser is in invalid state!");
 		}
+
+		let mut page_siz :u16 = 0; // Size of the page's body
+		// Whether our page ends with a continued packet
+		self.bi.ends_with_continued = self.bi.starts_with_continued;
+
+		// First run: get the number of packets,
+		// whether the page ends with a continued packet,
+		// and the size of the page's body
+		for val in &segments_buf {
+			page_siz += *val as u16;
+			// Increment by 1 if val < 255, otherwise by 0
+			self.packet_count += (*val < 255) as u16;
+			self.bi.ends_with_continued = !(*val < 255);
+		}
+
+		let mut packets = Vec::with_capacity(self.packet_count as usize
+			+ self.bi.ends_with_continued as usize);
+		let mut cur_packet_siz :u16 = 0;
+		let mut cur_packet_offs :u16 = 0;
+
+		// Second run: get the offsets of the packets
+		// Not that we need it right now, but its much more fun this way, am I right
+		for val in &segments_buf {
+			cur_packet_siz += *val as u16;
+			if *val < 255 {
+				packets.push((cur_packet_offs, cur_packet_siz));
+				cur_packet_offs += cur_packet_siz;
+				cur_packet_siz = 0;
+			}
+		}
+		if self.bi.ends_with_continued {
+			packets.push((cur_packet_offs, cur_packet_siz));
+		}
+
+		self.bi.packet_positions = packets;
+		self.segments_or_packets_buf = segments_buf;
+		self.state = PageParserState::SegmentsRead;
+		page_siz as usize
 	}
 
 	fn parse_packet_data(&mut self, packet_data :Vec<u8>) -> Result<(), OggReadError> {
-		if let PageParserState::SegmentsRead = self.state {
-			// Now to hash calculation.
-			// 1. Clear the header buffer
-			self.header_buf[22] = 0;
-			self.header_buf[23] = 0;
-			self.header_buf[24] = 0;
-			self.header_buf[25] = 0;
-
-			// 2. Calculate the hash
-			let mut hash_calculated :u32;
-			hash_calculated = vorbis_crc32_update(0, &self.header_buf);
-			hash_calculated = vorbis_crc32_update(hash_calculated,
-				&self.segments_or_packets_buf);
-			hash_calculated = vorbis_crc32_update(hash_calculated, &packet_data);
-
-			// 3. Compare to the extracted one
-			if self.checksum != hash_calculated {
-				try!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
-			}
-			self.segments_or_packets_buf = packet_data;
-			self.state = PageParserState::PgDataRead;
-			Ok(())
-		} else {
+		if self.state != PageParserState::SegmentsRead {
 			panic!("page parser is in invalid state!");
 		}
+
+		// Now to hash calculation.
+		// 1. Clear the header buffer
+		self.header_buf[22] = 0;
+		self.header_buf[23] = 0;
+		self.header_buf[24] = 0;
+		self.header_buf[25] = 0;
+
+		// 2. Calculate the hash
+		let mut hash_calculated :u32;
+		hash_calculated = vorbis_crc32_update(0, &self.header_buf);
+		hash_calculated = vorbis_crc32_update(hash_calculated,
+			&self.segments_or_packets_buf);
+		hash_calculated = vorbis_crc32_update(hash_calculated, &packet_data);
+
+		// 3. Compare to the extracted one
+		if self.checksum != hash_calculated {
+			try!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
+		}
+		self.segments_or_packets_buf = packet_data;
+		self.state = PageParserState::PgDataRead;
+		Ok(())
 	}
 }
 
