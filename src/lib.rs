@@ -173,6 +173,146 @@ impl PageInfo {
 }
 
 /**
+Helper struct for parsing pages
+*/
+struct PageParser {
+	header_type_flag :u8,
+	absgp :u64,
+	stream_serial :u32,
+	sequence_num :u32,
+	checksum :u32,
+	state :PageParserState,
+	header_buf: [u8; 27],
+	packet_positions :Vec<(u16,u16)>, // Gets populated in the SegmentsRead state
+	ends_with_continued :bool, // Gets populated in the SegmentsRead state
+	/// Number of packet ending segments
+	packet_count :u16, // Gets populated in the SegmentsRead state
+	/// in the SegmentsRead state, this contains the segments buffer,
+	/// in the PgDataRead state, this contains the packets buffer.
+	segments_or_packets_buf :Vec<u8>,
+}
+
+enum PageParserState {
+	Created,
+	SegmentsRead,
+	PgDataRead,
+}
+
+impl PageParser {
+	fn new(header_buf :[u8; 27]) -> Result<(PageParser, usize), OggReadError> {
+		let mut header_rdr = Cursor::new(header_buf);
+		header_rdr.set_position(4);
+		let stream_structure_version = try!(header_rdr.read_u8());
+		if stream_structure_version != 0 {
+			try!(Err(OggReadError::InvalidStreamStructVer(stream_structure_version)));
+		}
+		Ok((PageParser {
+			header_type_flag : header_rdr.read_u8().unwrap(),
+			absgp : header_rdr.read_u64::<LittleEndian>().unwrap(),
+			stream_serial : header_rdr.read_u32::<LittleEndian>().unwrap(),
+			sequence_num : header_rdr.read_u32::<LittleEndian>().unwrap(),
+			checksum : header_rdr.read_u32::<LittleEndian>().unwrap(),
+			state : PageParserState::Created,
+			header_buf : header_buf,
+			packet_positions : Vec::new(),
+			ends_with_continued : false,
+			packet_count : 0,
+			segments_or_packets_buf :Vec::new(),
+		},
+			// Number of page segments
+			header_rdr.read_u8().unwrap() as usize
+		))
+	}
+
+	/// Whether the first packet in this page is a continued one
+	fn continued_packet(&self) -> bool {
+		self.header_type_flag & 0x01u8 != 0
+	}
+
+	/// Whether this is the first page in the logical bitstream
+	fn first_page(&self) -> bool {
+		self.header_type_flag & 0x02u8 != 0
+	}
+
+	/// Whether this is the last page in the logical bitstream
+	fn last_page(&self) -> bool {
+		self.header_type_flag & 0x04u8 != 0
+	}
+
+	fn parse_segments(&mut self, segments_buf :Vec<u8>) -> usize {
+		if let PageParserState::Created = self.state {
+			let mut page_siz :u16 = 0; // Size of the page's body
+			// Whether our page ends with a continued packet
+			self.ends_with_continued = self.continued_packet();
+
+			// First run: get the number of packets,
+			// whether the page ends with a continued packet,
+			// and the size of the page's body
+			for val in &segments_buf {
+				page_siz += *val as u16;
+				// Increment by 1 if val < 255, otherwise by 0
+				self.packet_count += (*val < 255) as u16;
+				self.ends_with_continued = !(*val < 255);
+			}
+
+			let mut packets = Vec::with_capacity(self.packet_count as usize
+				+ self.ends_with_continued as usize);
+			let mut cur_packet_siz :u16 = 0;
+			let mut cur_packet_offs :u16 = 0;
+
+			// Second run: get the offsets of the packets
+			// Not that we need it right now, but its much more fun this way, am I right
+			for val in &segments_buf {
+				cur_packet_siz += *val as u16;
+				if *val < 255 {
+					packets.push((cur_packet_offs, cur_packet_siz));
+					cur_packet_offs += cur_packet_siz;
+					cur_packet_siz = 0;
+				}
+			}
+			if self.ends_with_continued {
+				packets.push((cur_packet_offs, cur_packet_siz));
+			}
+
+			self.packet_positions = packets;
+			self.segments_or_packets_buf = segments_buf;
+			self.state = PageParserState::SegmentsRead;
+			page_siz as usize
+		} else {
+			panic!("page parser is in invalid state!");
+		}
+	}
+
+	fn parse_packet_data(&mut self, packet_data :Vec<u8>) -> Result<(), OggReadError> {
+		if let PageParserState::SegmentsRead = self.state {
+			// Now to hash calculation.
+			// 1. Clear the header buffer
+			self.header_buf[22] = 0;
+			self.header_buf[23] = 0;
+			self.header_buf[24] = 0;
+			self.header_buf[25] = 0;
+
+			// 2. Calculate the hash
+			let mut hash_calculated :u32;
+			hash_calculated = vorbis_crc32_update(0, &self.header_buf);
+			hash_calculated = vorbis_crc32_update(hash_calculated,
+				&self.segments_or_packets_buf);
+			hash_calculated = vorbis_crc32_update(hash_calculated, &packet_data);
+
+			// 3. Compare to the extracted one
+			if self.checksum != hash_calculated {
+				try!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
+			}
+			self.segments_or_packets_buf = packet_data;
+			self.state = PageParserState::PgDataRead;
+			Ok(())
+		} else {
+			panic!("page parser is in invalid state!");
+		}
+	}
+}
+
+/**
 Reader for packets from an Ogg stream.
 
 This reads codec packets belonging to several different logical streams from one physical Ogg container stream.
@@ -375,90 +515,28 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 	/// is at the current reader position.
 	/// Instead it searches until it finds the capture pattern.
 	fn read_ogg_page(&mut self) -> Result<(), OggReadError> {
-		let mut header_buf :[u8; 27] = try!(self.read_until_pg_header());
-		let mut header_rdr = Cursor::new(header_buf);
-		header_rdr.set_position(4);
-		let stream_structure_version = try!(header_rdr.read_u8());
-		if stream_structure_version != 0 {
-			try!(Err(OggReadError::InvalidStreamStructVer(stream_structure_version)));
-		}
-		let header_type_flag = try!(header_rdr.read_u8());
-		let absgp = try!(header_rdr.read_u64::<LittleEndian>());
-		let stream_serial = try!(header_rdr.read_u32::<LittleEndian>());
-		let sequence_num = try!(header_rdr.read_u32::<LittleEndian>());
-		let checksum = try!(header_rdr.read_u32::<LittleEndian>());
-		let page_segments :usize = try!(header_rdr.read_u8()) as usize;
-
-		let continued_packet :bool = header_type_flag & 0x01u8 != 0;
-		let first_page :bool = header_type_flag & 0x02u8 != 0;
-		let last_page :bool = header_type_flag & 0x04u8 != 0;
+		let header_buf :[u8; 27] = try!(self.read_until_pg_header());
+		let (mut pg_prs, page_segments) = try!(PageParser::new(header_buf));
 
 		let mut segments_buf = vec![0; page_segments]; // TODO fix this, we initialize memory for NOTHING!!! Out of some reason, this is seen as "unsafe" by rustc.
 		try!(self.rdr.read_exact(&mut segments_buf));
 
-		let mut page_siz :u16 = 0; // Size of the page's body
-		let mut packet_count :u16 = 0; // Number of packet ending segments
-		let mut ends_with_continued :bool = continued_packet;
+		let page_siz = pg_prs.parse_segments(segments_buf);
 
-		// First run: get the number of packets
-		// whether the page ends with a continued packet
-		// and the size of the page's body
-		for val in &segments_buf {
-			page_siz += *val as u16;
-			// Increment by 1 if val < 255, otherwise by 0
-			packet_count += (*val < 255) as u16;
-			ends_with_continued = !(*val < 255);
-		}
-
-		let mut packets = Vec::with_capacity(packet_count as usize
-			+ ends_with_continued as usize);
-		let mut cur_packet_siz :u16 = 0;
-		let mut cur_packet_offs :u16 = 0;
-
-		// Second run: get the offsets of the packets
-		// Not that we need it right now, but its much more fun this way, am I right
-		for val in &segments_buf {
-			cur_packet_siz += *val as u16;
-			if *val < 255 {
-				packets.push((cur_packet_offs, cur_packet_siz));
-				cur_packet_offs += cur_packet_siz;
-				cur_packet_siz = 0;
-			}
-		}
-		if ends_with_continued {
-			packets.push((cur_packet_offs, cur_packet_siz));
-		}
-
-		let mut page_data = vec![0; page_siz as usize];
-		try!(self.rdr.read_exact(&mut page_data));
+		let mut packet_data = vec![0; page_siz as usize];
+		try!(self.rdr.read_exact(&mut packet_data));
 
 		self.maybe_advance();
 
-		// Now to hash calculation.
-		// 1. Clear the header buffer
-		header_buf[22] = 0;
-		header_buf[23] = 0;
-		header_buf[24] = 0;
-		header_buf[25] = 0;
+		try!(pg_prs.parse_packet_data(packet_data));
 
-		// 2. Calculate the hash
-		let mut hash_calculated :u32;
-		hash_calculated = vorbis_crc32_update(0, &header_buf);
-		hash_calculated = vorbis_crc32_update(hash_calculated, &segments_buf);
-		hash_calculated = vorbis_crc32_update(hash_calculated, &page_data);
-
-		// 3. Compare to the extracted one
-		if checksum != hash_calculated {
-			try!(Err(OggReadError::HashMismatch(checksum, hash_calculated)));
-		}
-
-		match self.page_infos.entry(stream_serial) {
+		match self.page_infos.entry(pg_prs.stream_serial) {
 			Entry::Occupied(mut o) => {
 				let inf = o.get_mut();
-				if first_page {
+				if pg_prs.first_page() {
 					try!(Err(OggReadError::InvalidData));
 				}
-				if continued_packet != inf.ends_with_continued {
+				if pg_prs.continued_packet() != inf.ends_with_continued {
 					if !self.has_seeked {
 						try!(Err(OggReadError::InvalidData));
 					} else {
@@ -466,21 +544,21 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 						// and just drop the continued packet's content.
 
 						inf.last_overlap_pck.clear();
-						if continued_packet {
-							packets.remove(0);
-							if packet_count != 0 {
+						if pg_prs.continued_packet() {
+							pg_prs.packet_positions.remove(0);
+							if pg_prs.packet_count != 0 {
 								// Decrease packet count by one. Normal case.
-								packet_count -= 1;
+								pg_prs.packet_count -= 1;
 							} else {
 								// If the packet count is 0, this means
 								// that we start and end with the same continued packet.
 								// So now as we ignore that packet, we must clear the
 								// ends_with_continued state as well.
-								ends_with_continued = false;
+								pg_prs.ends_with_continued = false;
 							}
 						}
 					}
-				} else if continued_packet {
+				} else if pg_prs.continued_packet() {
 					// Remember the packet at the end so that it can be glued together once
 					// we encounter the next segment with length < 255 (doesnt have to be in this page)
 					let (offs, len) = inf.packet_positions[inf.packet_idx as usize];
@@ -494,60 +572,60 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 					}
 
 				}
-				inf.starts_with_continued = continued_packet;
-				inf.first_page = first_page;
-				inf.last_page = last_page;
-				inf.last_absgp = absgp;
-				inf.sequence_num = sequence_num;
-				inf.packet_positions = packets;
-				inf.ends_with_continued = ends_with_continued;
+				inf.starts_with_continued = pg_prs.continued_packet();
+				inf.first_page = pg_prs.first_page();
+				inf.last_page = pg_prs.last_page();
+				inf.last_absgp = pg_prs.absgp;
+				inf.sequence_num = pg_prs.sequence_num;
+				inf.packet_positions = pg_prs.packet_positions;
+				inf.ends_with_continued = pg_prs.ends_with_continued;
 				inf.packet_idx = 0;
-				inf.page_body = page_data;
+				inf.page_body = pg_prs.segments_or_packets_buf;
 			},
 			Entry::Vacant(v) => {
 				if !self.has_seeked {
-					if (!first_page || continued_packet) {
+					if (!pg_prs.first_page() || pg_prs.continued_packet()) {
 						// If we haven't seeked, this is an error.
 						try!(Err(OggReadError::InvalidData));
 					}
 				} else {
-					if !first_page {
+					if !pg_prs.first_page() {
 						// we can just ignore this.
 					}
-					if continued_packet {
+					if pg_prs.continued_packet() {
 						// Ignore the continued packet's content.
 						// This is a normal occurence if we have just seeked.
-						packets.remove(0);
-						if packet_count != 0 {
+						pg_prs.packet_positions.remove(0);
+						if pg_prs.packet_count != 0 {
 							// Decrease packet count by one. Normal case.
-							packet_count -= 1;
+							pg_prs.packet_count -= 1;
 						} else {
 							// If the packet count is 0, this means
 							// that we start and end with the same continued packet.
 							// So now as we ignore that packet, we must clear the
 							// ends_with_continued state as well.
-							ends_with_continued = false;
+							pg_prs.ends_with_continued = false;
 						}
 					}
 				}
 				v.insert(PageInfo {
-					starts_with_continued: continued_packet,
-					first_page: first_page,
-					last_page: last_page,
-					last_absgp: absgp,
-					sequence_num: sequence_num,
-					packet_positions: packets,
-					ends_with_continued: ends_with_continued,
+					starts_with_continued: pg_prs.continued_packet(),
+					first_page: pg_prs.first_page(),
+					last_page: pg_prs.last_page(),
+					last_absgp: pg_prs.absgp,
+					sequence_num: pg_prs.sequence_num,
+					packet_positions: pg_prs.packet_positions,
+					ends_with_continued: pg_prs.ends_with_continued,
 					packet_idx: 0,
-					page_body: page_data,
+					page_body: pg_prs.segments_or_packets_buf,
 					last_overlap_pck: Vec::new(),
 				});
 			},
 		}
-		let pg_has_stuff :bool = packet_count > 0;
+		let pg_has_stuff :bool = pg_prs.packet_count > 0;
 
 		if pg_has_stuff {
-			self.stream_with_stuff = Some(stream_serial);
+			self.stream_with_stuff = Some(pg_prs.stream_serial);
 		} else {
 			self.stream_with_stuff = None;
 		}
