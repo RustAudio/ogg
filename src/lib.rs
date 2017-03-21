@@ -358,7 +358,8 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 	/// Reads a packet, and returns it on success.
 	pub fn read_packet(&mut self) -> Result<Packet, OggReadError> {
 		while self.stream_with_stuff == None {
-			try!(self.read_ogg_page());
+			let page = try!(self.read_ogg_page());
+			try!(self.push_page(page));
 		}
 		let str_serial :u32 = self.stream_with_stuff.unwrap();
 		let mut pg_info = self.page_infos.get_mut(&str_serial).unwrap();
@@ -511,14 +512,14 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 		}
 	}
 
-	/// Reads a new Ogg page.
+	/// Parses and reads a new OGG page
 	///
-	/// This method reads a new Ogg page.
+	/// Returns a fully complete `PageParser`
 	///
 	/// To support seeking this does not assume that the capture pattern
 	/// is at the current reader position.
 	/// Instead it searches until it finds the capture pattern.
-	fn read_ogg_page(&mut self) -> Result<(), OggReadError> {
+	fn read_ogg_page(&mut self) -> Result<PageParser, OggReadError> {
 		let header_buf :[u8; 27] = try!(self.read_until_pg_header());
 		let (mut pg_prs, page_segments) = try!(PageParser::new(header_buf));
 
@@ -533,6 +534,12 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 		self.maybe_advance();
 
 		try!(pg_prs.parse_packet_data(packet_data));
+		Ok(pg_prs)
+	}
+
+	/// Pushes a given OGG page, updating the internal structures
+	/// with its contents.
+	fn push_page(&mut self, mut pg_prs :PageParser) -> Result<(), OggReadError> {
 
 		match self.page_infos.entry(pg_prs.stream_serial) {
 			Entry::Occupied(mut o) => {
