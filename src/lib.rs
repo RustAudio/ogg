@@ -6,7 +6,7 @@
 // specified in the LICENSE file attached to this
 // source distribution.
 
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
 #![cfg_attr(test, deny(warnings))]
 #![allow(unused_parens)] // To support C-style if's
 
