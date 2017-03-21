@@ -6,6 +6,11 @@
 // specified in the LICENSE file attached to this
 // source distribution.
 
+/*!
+Implementation of the CRC algorithm with the
+vorbis specific parameters and setup
+*/
+
 // Lookup table to enable bytewise CRC32 calculation
 // Created using the crc32-table-generate example.
 //

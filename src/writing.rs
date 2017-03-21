@@ -6,6 +6,10 @@
 // specified in the LICENSE file attached to this
 // source distribution.
 
+/*!
+Writing logic
+*/
+
 use std::result;
 use std::rc::Rc;
 use std::io::{self, Cursor, Write, Seek, SeekFrom};
