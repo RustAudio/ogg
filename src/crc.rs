@@ -1,6 +1,6 @@
 // Ogg decoder and encoder written in Rust
 //
-// Copyright (c) 2017 est31 <MTest31@outlook.com>
+// Copyright (c) 2016-2017 est31 <MTest31@outlook.com>
 // and contributors. All rights reserved.
 // Redistribution or use only under the terms
 // specified in the LICENSE file attached to this
