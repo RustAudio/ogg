@@ -139,7 +139,7 @@ and `parse_packet_data` functions, each called exactly once and in that precise 
 Then later code uses the struct's contents.
 */
 pub struct PageParser {
-	// Members packet_positions and packet_count
+	// Members packet_positions, ends_with_continued and packet_count
 	// get populated after segments have been parsed
 	bi :PageBaseInfo,
 
