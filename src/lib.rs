@@ -10,8 +10,6 @@
 #![cfg_attr(test, deny(warnings))]
 #![allow(unused_parens)] // To support C-style if's
 
-#![cfg_attr(feature = "async", feature(specialization))]
-
 /*!
 Ogg container decoder and encoder
 
@@ -20,9 +18,6 @@ mod are `PacketReader` and `PacketWriter`.
 */
 
 extern crate byteorder;
-
-#[cfg(feature = "async")]
-mod buf_reader;
 
 #[cfg(test)]
 mod test;
@@ -33,11 +28,6 @@ pub mod writing;
 
 pub use writing::{PacketWriter, PacketWriteEndInfo};
 pub use reading::{PacketReader, OggReadError};
-
-#[cfg(feature = "async")]
-pub use buf_reader::BufReader as BufReader;
-#[cfg(feature = "async")]
-pub use buf_reader::AdvanceAndSeekBack as AdvanceAndSeekBack;
 
 /**
 Ogg packet representation.

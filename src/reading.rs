@@ -20,8 +20,6 @@ use std::fmt::{Display, Formatter, Error as FmtError};
 use std::mem::replace;
 use crc::vorbis_crc32_update;
 use Packet;
-#[cfg(feature = "async")]
-use {AdvanceAndSeekBack};
 use std::io::Seek;
 
 /// Error that can be raised when decoding an Ogg transport.
@@ -730,61 +728,8 @@ impl<T :io::Read + io::Seek> PacketReader <T> {
 		let mut packet_data = vec![0; page_siz as usize];
 		try!(self.rdr.read_exact(&mut packet_data));
 
-		self.maybe_advance();
-
 		try!(pg_prs.parse_packet_data(packet_data));
 		Ok(pg_prs)
-	}
-
-	#[cfg(feature = "async")]
-	fn maybe_advance(&mut self) {
-		trait MaybeAdvance {
-			fn maybe_advance(&mut self);
-		}
-		impl<T> MaybeAdvance for T {
-			default fn maybe_advance(&mut self) { }
-		}
-		impl<T :AdvanceAndSeekBack> MaybeAdvance for T {
-			fn maybe_advance(&mut self) {
-				self.advance();
-			}
-		}
-		self.rdr.maybe_advance();
-	}
-
-	#[cfg(not(feature = "async"))]
-	fn maybe_advance(&mut self) {
-		// Do nothing ...
-	}
-
-	#[cfg(feature = "async")]
-	fn seek_back(&mut self, len :usize) -> io::Result<()> {
-		trait MaybeAdvance {
-			fn seek_back(&mut self, len :usize) -> io::Result<()>;
-		}
-		impl<T :Seek> MaybeAdvance for T {
-			default fn seek_back(&mut self, len :usize) -> io::Result<()> {
-				return match self.seek(SeekFrom::Current(-(len as i64))) {
-					Ok(_) => Ok(()),
-					Err(e) => Err(e),
-				};
-			}
-		}
-		impl<T :Seek + AdvanceAndSeekBack> MaybeAdvance for T {
-			fn seek_back(&mut self, len :usize) -> io::Result<()> {
-				self.seek_back(len);
-				return Ok(());
-			}
-		}
-		return self.rdr.seek_back(len);
-	}
-
-	#[cfg(not(feature = "async"))]
-	fn seek_back(&mut self, len :usize) -> io::Result<()> {
-		return match self.rdr.seek(SeekFrom::Current(-(len as i64))) {
-			Ok(_) => Ok(()),
-			Err(e) => Err(e),
-		};
 	}
 
 	/// Seeks the underlying reader
