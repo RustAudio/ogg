@@ -10,11 +10,16 @@
 
 extern crate ogg;
 extern crate rand;
+extern crate tokio_io;
+extern crate futures;
 
 use std::io;
-use ogg::*;
+use ogg::{PacketWriter, PacketWriteEndInfo};
+use ogg::reading::async::PacketReader;
 use std::rc::Rc;
 use std::io::{Cursor, Seek, SeekFrom};
+use tokio_io::AsyncRead;
+use futures::Stream;
 
 struct RandomWouldBlock<T>(T);
 impl <T: io::Read> io::Read for RandomWouldBlock<T> {
@@ -25,6 +30,8 @@ impl <T: io::Read> io::Read for RandomWouldBlock<T> {
 		self.0.read(buf)
 	}
 }
+
+impl <T :io::Read> AsyncRead for RandomWouldBlock<T> {}
 
 impl <T: io::Seek> io::Seek for RandomWouldBlock<T> {
 	fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
@@ -45,15 +52,14 @@ macro_rules! test_arr_eq {
 	}
 }
 
-macro_rules! continue_trying {
+macro_rules! cont_try {
 	($e:expr) => {
 		(|| {
 			loop {
 				match $e {
-					Ok(val) => return Ok(val),
-					Err(OggReadError::ReadError(ref err))
-						if err.kind() == io::ErrorKind::WouldBlock => (),
-					Err(err) => return Err(err),
+					Ok(futures::Async::Ready(v)) => return Ok(v),
+					Ok(_) => (),
+					Err(e) => return Err(e),
 				}
 			}
 		}) ()
@@ -77,13 +83,12 @@ fn test_ogg_random_would_block_run() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut rwd = RandomWouldBlock(&mut c);
-		let mut frwd = ogg::BufReader::new(&mut rwd);
-		let mut r = PacketReader::new(&mut frwd);
-		let p1 = continue_trying!(r.read_packet()).unwrap();
+		let mut r = PacketReader::new(&mut rwd);
+		let p1 = cont_try!(r.poll()).unwrap().unwrap();
 		assert_eq!(test_arr, *p1.data);
-		let p2 = continue_trying!(r.read_packet()).unwrap();
+		let p2 = cont_try!(r.poll()).unwrap().unwrap();
 		assert_eq!(test_arr_2, *p2.data);
-		let p3 = continue_trying!(r.read_packet()).unwrap();
+		let p3 = cont_try!(r.poll()).unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
 
@@ -107,13 +112,12 @@ fn test_ogg_random_would_block_run() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut rwd = RandomWouldBlock(&mut c);
-		let mut frwd = ogg::BufReader::new(&mut rwd);
-		let mut r = PacketReader::new(&mut frwd);
-		let p1 = continue_trying!(r.read_packet()).unwrap();
+		let mut r = PacketReader::new(&mut rwd);
+		let p1 = cont_try!(r.poll()).unwrap().unwrap();
 		assert_eq!(test_arr, *p1.data);
-		let p2 = continue_trying!(r.read_packet()).unwrap();
+		let p2 = cont_try!(r.poll()).unwrap().unwrap();
 		test_arr_eq!(test_arr_2, *p2.data);
-		let p3 = continue_trying!(r.read_packet()).unwrap();
+		let p3 = cont_try!(r.poll()).unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
 
@@ -135,11 +139,10 @@ fn test_ogg_random_would_block_run() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut rwd = RandomWouldBlock(&mut c);
-		let mut frwd = ogg::BufReader::new(&mut rwd);
-		let mut r = PacketReader::new(&mut frwd);
-		let p2 = continue_trying!(r.read_packet()).unwrap();
+		let mut r = PacketReader::new(&mut rwd);
+		let p2 = cont_try!(r.poll()).unwrap().unwrap();
 		test_arr_eq!(test_arr_2, *p2.data);
-		let p3 = continue_trying!(r.read_packet()).unwrap();
+		let p3 = cont_try!(r.poll()).unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
 }
