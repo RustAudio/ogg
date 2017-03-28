@@ -271,7 +271,7 @@ impl PageParser {
 /**
 Low level struct for reading from an Ogg stream.
 
-Note that most times you'll want the higher level `PageReader` struct.
+Note that most times you'll want the higher level `PacketReader` struct.
 
 It takes care of most of the internal parsing and logic, you
 will only have to take care of handing over your data.
