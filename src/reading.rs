@@ -127,6 +127,11 @@ impl PageInfo {
 	}
 }
 
+/// Contains a fully parsed OGG page.
+pub struct OggPage {
+	pg_prs :PageParser,
+}
+
 /**
 Helper struct for parsing pages
 
@@ -244,7 +249,8 @@ impl PageParser {
 	///
 	/// Only after this function has been called
 	/// you should pass on the `PageParser` to later code.
-	pub fn parse_packet_data(&mut self, packet_data :Vec<u8>) -> Result<(), OggReadError> {
+	pub fn parse_packet_data(mut self, packet_data :Vec<u8>) ->
+			Result<OggPage, OggReadError> {
 		// Now to hash calculation.
 		// 1. Clear the header buffer
 		self.header_buf[22] = 0;
@@ -264,7 +270,7 @@ impl PageParser {
 			try!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
 		}
 		self.segments_or_packets_buf = packet_data;
-		Ok(())
+		Ok(OggPage { pg_prs : self })
 	}
 }
 
@@ -383,9 +389,10 @@ impl BasePacketReader {
 	/// with its contents.
 	///
 	/// If you want the code to function properly, you should first call
-	/// `parse_segments`, then `parse_packet_data` on the `PageParser`
-	/// before passing it to this function.
-	pub fn push_page(&mut self, mut pg_prs :PageParser) -> Result<(), OggReadError> {
+	/// `parse_segments`, then `parse_packet_data` on the a `PageParser`
+	/// before passing the result to this function.
+	pub fn push_page(&mut self, page :OggPage) -> Result<(), OggReadError> {
+		let mut pg_prs = page.pg_prs;
 		match self.page_infos.entry(pg_prs.stream_serial) {
 			Entry::Occupied(mut o) => {
 				let inf = o.get_mut();
@@ -711,12 +718,10 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 
 	/// Parses and reads a new OGG page
 	///
-	/// Returns a fully complete `PageParser`
-	///
 	/// To support seeking this does not assume that the capture pattern
 	/// is at the current reader position.
 	/// Instead it searches until it finds the capture pattern.
-	fn read_ogg_page(&mut self) -> Result<PageParser, OggReadError> {
+	fn read_ogg_page(&mut self) -> Result<OggPage, OggReadError> {
 		let header_buf :[u8; 27] = try!(self.read_until_pg_header());
 		let (mut pg_prs, page_segments) = try!(PageParser::new(header_buf));
 
@@ -728,8 +733,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		let mut packet_data = vec![0; page_siz as usize];
 		try!(self.rdr.read_exact(&mut packet_data));
 
-		try!(pg_prs.parse_packet_data(packet_data));
-		Ok(pg_prs)
+		pg_prs.parse_packet_data(packet_data)
 	}
 
 	/// Seeks the underlying reader
@@ -758,10 +762,6 @@ pub mod async {
 	use futures::stream::Stream;
 	use futures::{Async, Poll};
 	use bytes::BytesMut;
-
-	struct OggPage {
-		pg_prs :PageParser,
-	}
 
 	enum PageDecodeState {
 		Head,
@@ -824,9 +824,8 @@ pub mod async {
 						let new_needed_len = pg_prs.parse_segments(consumed_buf);
 						PacketData(pg_prs, new_needed_len)
 					},
-					PacketData(mut pg_prs, _) => {
-						try!(pg_prs.parse_packet_data(consumed_buf));
-						ret = Some(OggPage { pg_prs });
+					PacketData(pg_prs, _) => {
+						ret = Some(try!(pg_prs.parse_packet_data(consumed_buf)));
 						Head
 					},
 					InUpdate => panic!("invalid state"),
@@ -875,7 +874,7 @@ pub mod async {
 				}
 				let page = try_ready!(self.pg_rd.poll());
 				match page {
-					Some(page) => try!(self.base_pck_rdr.push_page(page.pg_prs)),
+					Some(page) => try!(self.base_pck_rdr.push_page(page)),
 					None => return Ok(Async::Ready(None)),
 				}
 			}
