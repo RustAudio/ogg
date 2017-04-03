@@ -287,8 +287,9 @@ bitstream, and when the cache of every logical bistream is empty,
 it asks for a fresh page. You will then need to feed the struct
 one via the `push_page` function.
 
-This function is async ready in any way. It gets its data fed, instead
-of calling and blocking on lower level functionality to get it.
+All functions on this struct are async ready.
+They get their data fed, instead of calling and blocking
+in order to get it.
 */
 pub struct BasePacketReader {
 	// TODO the hashmap plus the set is perhaps smart ass perfect design but could be made more performant I guess...
@@ -663,10 +664,10 @@ Reader for packets from an Ogg stream.
 
 This reads codec packets belonging to several different logical streams from one physical Ogg container stream.
 
-If the `async` feature is activated, and you pass as internal reader a valid implementation of the
-`AdvanceAndSeekBack` trait, like the `BufReader` wrapper, the PacketReader will support async operation,
-meaning that its internal state doesn't get corrupted if from multiple consecutive reads which it performs,
-some fail with e.g. the `WouldBlock` error kind.
+This reader is not async ready. It does not keep its internal state
+consistent when it encounters the `WouldBlock` error kind.
+If you desire async functionality, consider enabling the `async` feature
+and look into the async module.
 */
 pub struct PacketReader<T :io::Read + io::Seek> {
 	rdr :T,
