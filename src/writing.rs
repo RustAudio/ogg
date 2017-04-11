@@ -268,7 +268,7 @@ fn test_recapture() {
 	// at varying distances.
 	// This is a regression test
 	use std::io::Write;
-	use super::PacketWriter;
+	use super::PacketReader;
 	let mut c = Cursor::new(Vec::new());
 	let test_arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
