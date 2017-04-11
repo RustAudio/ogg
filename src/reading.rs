@@ -781,7 +781,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			} else {
 				// We must go forwards
 				let page = pg_read_match_serial!();
-				if ab_of(&page) > pos_goal {
+				if ab_of(&page) >= pos_goal {
 					// Sucess, found the position.
 					self.base_pck_rdr.update_after_seek();
 					try!(self.base_pck_rdr.push_page(page));

@@ -160,3 +160,93 @@ fn test_ogg_packet_write() {
 	let cr = c.get_ref();
 	test_arr_eq!(cr, test_arr_out);
 }
+
+struct XorShift {
+	state :(u32, u32, u32, u32),
+}
+impl XorShift {
+	fn from_two(seed :(u32, u32)) -> Self {
+		let mut xs = XorShift {
+			state : (seed.0 ^ 0x2a24a930, seed.1 ^ 0xa9f60227,
+				!seed.0 ^ 0x68c44d2d, !seed.1 ^ 0xa1f9794a)
+		};
+		xs.next();
+		xs.next();
+		xs.next();
+		xs
+	}
+
+	fn next(&mut self) -> u32 {
+		let mut r = self.state.3;
+		r ^= r << 11;
+		r ^= r >> 8;
+		self.state.3 = self.state.2;
+		self.state.2 = self.state.1;
+		self.state.1 = self.state.0;
+		r ^= self.state.0;
+		r ^= self.state.0 >> 19;
+		self.state.0 = r;
+		r
+	}
+}
+
+fn gen_pck(seed :u32, len_d_four :usize) -> Box<[u8]> {
+	let mut ret = Vec::with_capacity(len_d_four * 4);
+	let mut xs = XorShift::from_two((seed, len_d_four as u32));
+	for _ in 0..len_d_four {
+		let v = xs.next();
+		ret.push(v as u8);
+		ret.push((v >> 8) as u8);
+		ret.push((v >> 16) as u8);
+		ret.push((v >> 24) as u8);
+	}
+	ret.into_boxed_slice()
+}
+
+#[test]
+fn test_seeking() {
+	let pck_count = 400;
+	let mut rng = XorShift::from_two((0x9899eb03, 0x54138143));
+
+	let mut c = Cursor::new(Vec::new());
+
+	{
+		let mut w = PacketWriter::new(&mut c);
+		let np = PacketWriteEndInfo::NormalPacket;
+		let ep = PacketWriteEndInfo::EndPage;
+
+		for ctr in 0..pck_count {
+			w.write_packet(gen_pck(ctr, rng.next() as usize & 127), 0xdeadb33f,
+				if (ctr + 1) % 3 == 0 { ep } else { np }, ctr as u64).unwrap();
+		}
+	}
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+	{
+		let mut r = PacketReader::new(c);
+		macro_rules! test_seek {
+			($absgp:expr) => {
+				// First, perform the seek
+				r.seek_absgp(None, $absgp).unwrap();
+				// Then go to the searched packet inside the page
+				// We know that all groups of three packets form one.
+				for _ in 0 .. $absgp % 3 {
+					r.read_packet().unwrap();
+				}
+				// Now read the actual packet we are interested in and
+				let pck = r.read_packet().unwrap();
+				// a) ensure we have a correct absolute granule pos
+				// for the page and
+				assert_eq!($absgp - ($absgp % 3), pck.absgp_page - 2);
+				// b) ensure the packet's content matches with the one we
+				// have put in. This is another insurance.
+				test_arr_eq!(pck.data, gen_pck($absgp, &pck.data.len() / 4));
+			};
+		}
+		test_seek!(32);
+		test_seek!(300);
+		test_seek!(314);
+		test_seek!(100);
+		test_seek!(10);
+		test_seek!(377);
+	}
+}
