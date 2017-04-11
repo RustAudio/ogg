@@ -11,7 +11,6 @@ Writing logic
 */
 
 use std::result;
-use std::rc::Rc;
 use std::io::{self, Cursor, Write, Seek, SeekFrom};
 use byteorder::{WriteBytesExt, LittleEndian};
 use std::collections::HashMap;
@@ -46,7 +45,7 @@ struct CurrentPageValues {
 	/// Points to the first unwritten position in cur_pg_lacing.
 	segment_cnt :u8,
 	cur_pg_lacing :[u8; 255],
-	cur_pg_data :Vec<Rc<[u8]>>,
+	cur_pg_data :Vec<Box<[u8]>>,
 
 	/// Some(offs), if the last packet
 	/// couldn't make it fully into this page, and
@@ -102,7 +101,7 @@ impl <T :io::Write> PacketWriter<T> {
 	/// Write a packet
 	///
 	///
-	pub fn write_packet(&mut self, pck_cont :Rc<[u8]>, serial :u32,
+	pub fn write_packet(&mut self, pck_cont :Box<[u8]>, serial :u32,
 			inf :PacketWriteEndInfo,
 			/* TODO find a better way to design the API around
 				passing the absgp to the underlying implementation.
@@ -124,10 +123,11 @@ impl <T :io::Write> PacketWriter<T> {
 			}
 		);
 
-		pg.cur_pg_data.push(pck_cont.clone());
+		let cont_len = pck_cont.len();
+		pg.cur_pg_data.push(pck_cont);
 
-		let last_data_segment_size = (pck_cont.len() % 255) as u8;
-		let needed_segments :usize = (pck_cont.len() / 255) + 1;
+		let last_data_segment_size = (cont_len % 255) as u8;
+		let needed_segments :usize = (cont_len / 255) + 1;
 		let mut segment_in_page_i :u8 = pg.segment_cnt;
 		let mut at_page_end :bool = false;
 		for segment_i in 0 .. needed_segments {
@@ -278,13 +278,13 @@ fn test_recapture() {
 		let ep = PacketWriteEndInfo::EndPage;
 		{
 			let mut w = PacketWriter::new(&mut c);
-			w.write_packet(Rc::new(test_arr), 0xdeadb33f, ep, 0).unwrap();
+			w.write_packet(Box::new(test_arr), 0xdeadb33f, ep, 0).unwrap();
 
 			// Now, after the end of the page, put in some noise.
 			w.wtr.write_all(&[0; 38]).unwrap();
 
-			w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-			w.write_packet(Rc::new(test_arr_3), 0xdeadb33f, ep, 2).unwrap();
+			w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+			w.write_packet(Box::new(test_arr_3), 0xdeadb33f, ep, 2).unwrap();
 		}
 	}
 	//print_u8_slice(c.get_ref());

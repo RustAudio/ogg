@@ -8,7 +8,6 @@
 
 use super::*;
 
-use std::rc::Rc;
 use std::io::{Cursor, Seek, SeekFrom};
 
 macro_rules! test_arr_eq {
@@ -30,9 +29,9 @@ fn test_ogg_packet_rw() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -58,9 +57,9 @@ fn test_ogg_packet_rw() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -85,8 +84,8 @@ fn test_ogg_packet_rw() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -111,10 +110,10 @@ fn test_page_end_after_first_packet() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr), 0xdeadb33f,
+		w.write_packet(Box::new(test_arr), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 0).unwrap();
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -152,7 +151,7 @@ fn test_ogg_packet_write() {
 
 	{
 		let mut w = PacketWriter::new(&mut c);
-		w.write_packet(Rc::new(test_arr_in), 0x5b90a374,
+		w.write_packet(Box::new(test_arr_in), 0x5b90a374,
 			PacketWriteEndInfo::EndPage, 0).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
