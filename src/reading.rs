@@ -632,7 +632,7 @@ impl UntilPageHeaderReader {
 			// Seek back so that we are at the position
 			// right after the header.
 
-			self.mode = SeekNeeded((needed - rd_buf.len()) as i32);
+			self.mode = SeekNeeded(needed as i32 - fnd_buf.len() as i32);
 			return Ok(Res::SeekNeeded);
 		}
 	}

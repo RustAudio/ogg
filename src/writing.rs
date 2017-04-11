@@ -259,3 +259,43 @@ impl <T :io::Write> PacketWriter<T> {
 		return Ok(());
 	}
 }
+
+// TODO once 1.18 gets released, move this
+// to the test module and make wtr pub(crate).
+#[test]
+fn test_recapture() {
+	// Test that we can deal with recapture
+	// at varying distances.
+	// This is a regression test
+	use std::io::Write;
+	use super::PacketWriter;
+	let mut c = Cursor::new(Vec::new());
+	let test_arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
+	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
+	{
+		let np = PacketWriteEndInfo::NormalPacket;
+		let ep = PacketWriteEndInfo::EndPage;
+		{
+			let mut w = PacketWriter::new(&mut c);
+			w.write_packet(Rc::new(test_arr), 0xdeadb33f, ep, 0).unwrap();
+
+			// Now, after the end of the page, put in some noise.
+			w.wtr.write_all(&[0; 38]).unwrap();
+
+			w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+			w.write_packet(Rc::new(test_arr_3), 0xdeadb33f, ep, 2).unwrap();
+		}
+	}
+	//print_u8_slice(c.get_ref());
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+	{
+		let mut r = PacketReader::new(c);
+		let p1 = r.read_packet().unwrap();
+		assert_eq!(test_arr, *p1.data);
+		let p2 = r.read_packet().unwrap();
+		assert_eq!(test_arr_2, *p2.data);
+		let p3 = r.read_packet().unwrap();
+		assert_eq!(test_arr_3, *p3.data);
+	}
+}
