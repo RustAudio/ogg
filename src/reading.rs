@@ -749,6 +749,49 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		self.base_pck_rdr.update_after_seek();
 		return Ok(r);
 	}
+
+	/// Seeks to absolute granule pos
+	pub fn seek_absgp(&mut self, stream_serial :Option<u32>,
+			pos_goal :u64) -> Result<(), OggReadError> {
+		macro_rules! pg_read_match_serial {
+			{} => {{
+				let mut pg;
+				loop {
+					pg = try!(self.read_ogg_page());
+					// Continue the search if we encounter a
+					// page with a different stream serial,
+					// otherwise the search for a page with a
+					// "matching" serial is done.
+					match stream_serial {
+						Some(s) if pg.pg_prs.stream_serial != s => (),
+						_ => break,
+					}
+				}
+				pg
+			}};
+		}
+		let ab_of = |pg :&OggPage| { pg.pg_prs.bi.absgp };
+		let mut last_pg = pg_read_match_serial!();
+		loop {
+			if ab_of(&last_pg) > pos_goal {
+				// We must go backwards
+				// Seek to start
+				try!(self.rdr.seek(SeekFrom::Start(0)));
+				last_pg = pg_read_match_serial!();
+			} else {
+				// We must go forwards
+				let page = pg_read_match_serial!();
+				if ab_of(&page) > pos_goal {
+					// Sucess, found the position.
+					self.base_pck_rdr.update_after_seek();
+					try!(self.base_pck_rdr.push_page(page));
+					return Ok(());
+				} else {
+					last_pg = page;
+				}
+			}
+		}
+	}
 }
 
 #[cfg(feature = "async")]
