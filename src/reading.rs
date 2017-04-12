@@ -82,7 +82,6 @@ struct PageBaseInfo {
 	/// Absolute granule position. The codec defines further meaning.
 	absgp :u64,
 	/// Page counter
-	#[allow(unused)]
 	sequence_num :u32,
 	/// Packet information:
 	/// index is number of packet,
@@ -751,12 +750,46 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	}
 
 	/// Seeks to absolute granule pos
+	///
+	/// More specifically, it seeks to the first Ogg page
+	/// that has an `absgp` greater or equal to the specified one.
+	///
+	/// The passed `stream_serial` parameter controls the stream
+	/// serial number to filter our search for. If its `None`, no
+	/// filtering is applied, but if it is `Some(n)`, we filter for
+	/// streams with the serial number `n`.
+	/// Note that the `None` case is only intended for streams
+	/// where only one logical stream exists, the seek may misbehave
+	/// if `Ǹone` gets passed when multiple streams exist.
 	pub fn seek_absgp(&mut self, stream_serial :Option<u32>,
 			pos_goal :u64) -> Result<(), OggReadError> {
-		macro_rules! pg_read_match_serial {
-			{} => {{
+		macro_rules! pg_read_until_end_or_goal {
+			{$goal:expr} => {{
+				let mut pos;
 				let mut pg;
 				loop {
+					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
+					pg = try!(self.read_ogg_page());
+					// Continue the search if we encounter a
+					// page with a different stream serial,
+					// otherwise the search for a page with a
+					// "matching" serial is done.
+					match stream_serial {
+						Some(s) if pg.pg_prs.stream_serial != s => (),
+						_ if pg.pg_prs.bi.absgp >= $goal => break,
+						_ if pg.pg_prs.bi.last_page => break,
+						_ => (),
+					}
+				}
+				(pos, pg)
+			}};
+		}
+		macro_rules! pg_read_match_serial {
+			{} => {{
+				let mut pos;
+				let mut pg;
+				loop {
+					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
 					pg = try!(self.read_ogg_page());
 					// Continue the search if we encounter a
 					// page with a different stream serial,
@@ -767,31 +800,80 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 						_ => break,
 					}
 				}
-				pg
+				(pos, pg)
 			}};
 		}
+
+		// Bisect seeking algo.
+		// Start by finding boundaries, e.g. at the start and
+		// end of the file, then bisect those boundaries successively
+		// until a page is found.
+
+		// TODO also support -1 absgp's (no packets finishing on the page)
+
+		//println!("seek start");
 		let ab_of = |pg :&OggPage| { pg.pg_prs.bi.absgp };
-		let mut last_pg = pg_read_match_serial!();
-		loop {
-			if ab_of(&last_pg) > pos_goal {
-				// We must go backwards
-				// Seek to start
+		// First, find initial "boundaries"
+		let (pos, pg) = pg_read_match_serial!();
+		let (mut begin_pos, mut begin_pg, mut end_pos, mut end_pg) =
+			if ab_of(&pg) > pos_goal {
+				// The page is past our goal.
+				// Seek to the start of the file to get the other
+				// boundary
 				try!(self.rdr.seek(SeekFrom::Start(0)));
-				last_pg = pg_read_match_serial!();
+				let (begin_pos, begin_pg) = pg_read_match_serial!();
+				(begin_pos, begin_pg, pos, pg)
+			} else if ab_of(&pg) < pos_goal {
+				// The page is before our goal.
+				// Seek to the end of the file to get the other
+				// boundary
+				// TODO the 200 KB is just a guessed number, any ideas
+				// to improve it?
+				try!(seek_before_end(&mut self.rdr, 200 * 1024));
+				let (end_pos, end_pg) = pg_read_until_end_or_goal!(pos_goal);
+				(pos, pg, end_pos, end_pg)
 			} else {
-				// We must go forwards
-				let page = pg_read_match_serial!();
-				if ab_of(&page) >= pos_goal {
-					// Sucess, found the position.
-					self.base_pck_rdr.update_after_seek();
-					try!(self.base_pck_rdr.push_page(page));
-					return Ok(());
-				} else {
-					last_pg = page;
-				}
+				// Equality, means we found our sought page
+				self.base_pck_rdr.update_after_seek();
+				try!(self.base_pck_rdr.push_page(pg));
+				return Ok(());
+			};
+
+		// Then perform the bisection
+		loop {
+			// Search is done if the two limits are the same page,
+			// or consecutive pages.
+			if end_pg.pg_prs.bi.sequence_num - begin_pg.pg_prs.bi.sequence_num <= 1 {
+				self.base_pck_rdr.update_after_seek();
+				try!(self.base_pck_rdr.push_page(end_pg));
+				return Ok(());
+			}
+			// Perform the bisection step
+			let pos_to_seek = begin_pos + (end_pos - begin_pos) / 2;
+			try!(self.rdr.seek(SeekFrom::Start(pos_to_seek)));
+			let (pos, pg) = pg_read_match_serial!();
+			/*println!("seek {} {} . {} @ {} {} . {}",
+				ab_of(&begin_pg), ab_of(&end_pg), ab_of(&pg),
+				begin_pos, end_pos, pos);// */
+
+			if ab_of(&pg) > pos_goal {
+				end_pos = pos;
+				end_pg = pg;
+			} else {
+				begin_pos = pos;
+				begin_pg = pg;
 			}
 		}
 	}
+}
+
+// util function
+fn seek_before_end<T :io::Read + io::Seek>(mut rdr :T,
+		offs :u64) -> Result<u64, OggReadError> {
+	use std::io::SeekFrom;
+	let end_pos = try!(rdr.seek(SeekFrom::End(0)));
+	let end_pos_to_seek = ::std::cmp::min(end_pos, offs);
+	return Ok(try!(rdr.seek(SeekFrom::End(-(end_pos_to_seek as i64)))));
 }
 
 #[cfg(feature = "async")]
