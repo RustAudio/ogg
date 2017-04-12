@@ -205,7 +205,7 @@ fn gen_pck(seed :u32, len_d_four :usize) -> Box<[u8]> {
 
 #[test]
 fn test_seeking() {
-	let pck_count = 400;
+	let pck_count = 402;
 	let mut rng = XorShift::from_two((0x9899eb03, 0x54138143));
 
 	let mut c = Cursor::new(Vec::new());
@@ -248,5 +248,6 @@ fn test_seeking() {
 		test_seek!(100);
 		test_seek!(10);
 		test_seek!(377);
+		test_seek!(401);
 	}
 }
