@@ -276,5 +276,10 @@ fn test_seeking() {
 		ensure_continues!(201);
 		// Ensure the final page can be sought to
 		test_seek!(401);
+		// TODO after we sought to the final page, we should be able to seek
+		// before it again. Right now this doesn't work.
+		// test_seek!(250);
 	}
 }
+
+// TODO add seeking test for seeking with -1 absgp pages (continued pages)
