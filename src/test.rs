@@ -242,12 +242,39 @@ fn test_seeking() {
 				test_arr_eq!(pck.data, gen_pck($absgp, &pck.data.len() / 4));
 			};
 		}
+		macro_rules! ensure_continues {
+			($absgp:expr) => {
+				// Ensure the stream continues normally
+				let pck = r.read_packet().unwrap();
+				test_arr_eq!(pck.data, gen_pck($absgp, &pck.data.len() / 4));
+				let pck = r.read_packet().unwrap();
+				test_arr_eq!(pck.data, gen_pck($absgp + 1, &pck.data.len() / 4));
+				let pck = r.read_packet().unwrap();
+				test_arr_eq!(pck.data, gen_pck($absgp + 2, &pck.data.len() / 4));
+				let pck = r.read_packet().unwrap();
+				test_arr_eq!(pck.data, gen_pck($absgp + 3, &pck.data.len() / 4));
+			};
+		}
 		test_seek!(32);
 		test_seek!(300);
 		test_seek!(314);
 		test_seek!(100);
+		ensure_continues!(101);
 		test_seek!(10);
+		ensure_continues!(11);
+		// Ensure that if we seek to the same place multiple times, it doesn't
+		// fill data needlessly.
+		r.seek_absgp(None, 377).unwrap();
+		r.seek_absgp(None, 377).unwrap();
 		test_seek!(377);
+		ensure_continues!(378);
+		// Ensure that if we seek to the same place multiple times, it doesn't
+		// fill data needlessly.
+		r.seek_absgp(None, 200).unwrap();
+		r.seek_absgp(None, 200).unwrap();
+		test_seek!(200);
+		ensure_continues!(201);
+		// Ensure the final page can be sought to
 		test_seek!(401);
 	}
 }

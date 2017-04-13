@@ -763,6 +763,13 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// if `Ǹone` gets passed when multiple streams exist.
 	pub fn seek_absgp(&mut self, stream_serial :Option<u32>,
 			pos_goal :u64) -> Result<(), OggReadError> {
+		macro_rules! found {
+			($pos:expr) => {{
+				try!(self.rdr.seek(SeekFrom::Start($pos)));
+				self.base_pck_rdr.update_after_seek();
+				return Ok(());
+			}};
+		}
 		macro_rules! pg_read_until_end_or_goal {
 			{$goal:expr} => {{
 				let mut pos;
@@ -776,7 +783,8 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 					// "matching" serial is done.
 					match stream_serial {
 						Some(s) if pg.pg_prs.stream_serial != s => (),
-						_ if pg.pg_prs.bi.absgp >= $goal => break,
+						_ if pg.pg_prs.bi.absgp == $goal => found!(pos),
+						_ if pg.pg_prs.bi.absgp > $goal => break,
 						_ if pg.pg_prs.bi.last_page => break,
 						_ => (),
 					}
@@ -811,7 +819,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 
 		// TODO also support -1 absgp's (no packets finishing on the page)
 
-		//println!("seek start");
+		//println!("seek start. goal = {}", pos_goal);
 		let ab_of = |pg :&OggPage| { pg.pg_prs.bi.absgp };
 		// First, find initial "boundaries"
 		let (pos, pg) = pg_read_match_serial!();
@@ -834,9 +842,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				(pos, pg, end_pos, end_pg)
 			} else {
 				// Equality, means we found our sought page
-				self.base_pck_rdr.update_after_seek();
-				try!(self.base_pck_rdr.push_page(pg));
-				return Ok(());
+				found!(pos);
 			};
 
 		// Then perform the bisection
@@ -844,9 +850,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			// Search is done if the two limits are the same page,
 			// or consecutive pages.
 			if end_pg.pg_prs.bi.sequence_num - begin_pg.pg_prs.bi.sequence_num <= 1 {
-				self.base_pck_rdr.update_after_seek();
-				try!(self.base_pck_rdr.push_page(end_pg));
-				return Ok(());
+				found!(end_pos);
 			}
 			// Perform the bisection step
 			let pos_to_seek = begin_pos + (end_pos - begin_pos) / 2;
@@ -856,7 +860,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				ab_of(&begin_pg), ab_of(&end_pg), ab_of(&pg),
 				begin_pos, end_pos, pos);// */
 
-			if ab_of(&pg) > pos_goal {
+			if ab_of(&pg) >= pos_goal {
 				end_pos = pos;
 				end_pg = pg;
 			} else {
