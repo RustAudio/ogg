@@ -763,6 +763,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// if `Ǹone` gets passed when multiple streams exist.
 	pub fn seek_absgp(&mut self, stream_serial :Option<u32>,
 			pos_goal :u64) -> Result<(), OggReadError> {
+		use std::cmp::Ordering;
 		macro_rules! found {
 			($pos:expr) => {{
 				try!(self.rdr.seek(SeekFrom::Start($pos)));
@@ -824,25 +825,29 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		// First, find initial "boundaries"
 		let (pos, pg) = pg_read_match_serial!();
 		let (mut begin_pos, mut begin_pg, mut end_pos, mut end_pg) =
-			if ab_of(&pg) > pos_goal {
-				// The page is past our goal.
-				// Seek to the start of the file to get the other
-				// boundary
-				try!(self.rdr.seek(SeekFrom::Start(0)));
-				let (begin_pos, begin_pg) = pg_read_match_serial!();
-				(begin_pos, begin_pg, pos, pg)
-			} else if ab_of(&pg) < pos_goal {
-				// The page is before our goal.
-				// Seek to the end of the file to get the other
-				// boundary
-				// TODO the 200 KB is just a guessed number, any ideas
-				// to improve it?
-				try!(seek_before_end(&mut self.rdr, 200 * 1024));
-				let (end_pos, end_pg) = pg_read_until_end_or_goal!(pos_goal);
-				(pos, pg, end_pos, end_pg)
-			} else {
-				// Equality, means we found our sought page
-				found!(pos);
+			match ab_of(&pg).cmp(&pos_goal) {
+				Ordering::Greater => {
+					// The page is past our goal.
+					// Seek to the start of the file to get the other
+					// boundary
+					try!(self.rdr.seek(SeekFrom::Start(0)));
+					let (begin_pos, begin_pg) = pg_read_match_serial!();
+					(begin_pos, begin_pg, pos, pg)
+				}
+				Ordering::Less => {
+					// The page is before our goal.
+					// Seek to the end of the file to get the other
+					// boundary
+					// TODO the 200 KB is just a guessed number, any ideas
+					// to improve it?
+					try!(seek_before_end(&mut self.rdr, 200 * 1024));
+					let (end_pos, end_pg) = pg_read_until_end_or_goal!(pos_goal);
+					(pos, pg, end_pos, end_pg)
+				}
+				Ordering::Equal => {
+					// Equality, means we found our sought page
+					found!(pos);
+				}
 			};
 
 		// Then perform the bisection
