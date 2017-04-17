@@ -282,4 +282,7 @@ fn test_seeking() {
 	}
 }
 
-// TODO add seeking test for seeking with -1 absgp pages (continued pages)
+// TODO add seeking tests for more cases:
+//     * -1 absgp pages (continued pages)
+//     * multiple logical streams
+//     * seeking to unavailable positions
