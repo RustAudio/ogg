@@ -286,3 +286,8 @@ fn test_seeking() {
 //     * -1 absgp pages (continued pages)
 //     * multiple logical streams
 //     * seeking to unavailable positions
+//     * Situation where the search ended in a page where the last packet ending
+//       (the packet that sets the absgp of the page) is a continued one, meaning
+//       that it doesn't start on the page but before (and is the only packet
+//       ending in the page, but that's irrelevant). Here we must seek back to the
+//       beginning of the packet.
