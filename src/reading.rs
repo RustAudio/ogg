@@ -771,6 +771,10 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				return Ok(());
 			}};
 		}
+		// The task of this macro is to read to the
+		// end of the logical stream. For optimisation reasons,
+		// it returns early if we found our goal
+		// or any page past it.
 		macro_rules! pg_read_until_end_or_goal {
 			{$goal:expr} => {{
 				let mut pos;
@@ -778,15 +782,24 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				loop {
 					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
 					pg = try!(self.read_ogg_page());
-					// Continue the search if we encounter a
-					// page with a different stream serial,
-					// otherwise the search for a page with a
-					// "matching" serial is done.
 					match stream_serial {
+						// Continue the search if we encounter a
+						// page with a different stream serial
 						Some(s) if pg.pg_prs.stream_serial != s => (),
+						// If the absgp matches our goal, the seek process is done.
+						// This is a nice shortcut as we don't need to perform
+						// the remainder of the seek process any more.
+						// Of course, an exact match only happens in the fewest
+						// of cases
 						_ if pg.pg_prs.bi.absgp == $goal => found!(pos),
+						// If we found a page past our goal, we already
+						// found a position that can serve as end post of the search.
 						_ if pg.pg_prs.bi.absgp > $goal => break,
+						// Stop the search if the stream has ended.
+						// TODO the seek process should fail in this case:
+						// the absgp sought is past the last page of the stream.
 						_ if pg.pg_prs.bi.last_page => break,
+						// If the page is not interesting, seek over it.
 						_ => (),
 					}
 				}
