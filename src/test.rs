@@ -161,6 +161,33 @@ fn test_packet_write() {
 	test_arr_eq!(cr, test_arr_out);
 }
 
+#[test]
+fn test_write_large() {
+	// Test that writing an overlarge packet works,
+	// aka where a new page is forced by the
+	// first packet in the page.
+
+	let mut c = Cursor::new(Vec::new());
+
+	// A page can contain at most 255 * 255 = 65025
+	// bytes of payload packet data.
+	// A length of 70_00 will guaranteed create a page break.
+	let test_arr = gen_pck(1234, 70_000 / 4);
+	{
+		let mut w = PacketWriter::new(&mut c);
+		w.write_packet(test_arr.clone(), 0x5b90a374,
+			PacketWriteEndInfo::EndPage, 0).unwrap();
+	}
+	//print_u8_slice(c.get_ref());
+
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+	{
+		let mut r = PacketReader::new(c);
+		let p = r.read_packet().unwrap();
+		test_arr_eq!(test_arr, *p.data);
+	}
+}
+
 struct XorShift {
 	state :(u32, u32, u32, u32),
 }
