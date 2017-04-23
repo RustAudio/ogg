@@ -203,6 +203,39 @@ fn gen_pck(seed :u32, len_d_four :usize) -> Box<[u8]> {
 	ret.into_boxed_slice()
 }
 
+macro_rules! test_seek_r {
+	($r:expr, $absgp:expr) => {
+		// First, perform the seek
+		$r.seek_absgp(None, $absgp).unwrap();
+		// Then go to the searched packet inside the page
+		// We know that all groups of three packets form one.
+		for _ in 0 .. $absgp % 3 {
+			$r.read_packet().unwrap();
+		}
+		// Now read the actual packet we are interested in and
+		let pck = $r.read_packet().unwrap();
+		// a) ensure we have a correct absolute granule pos
+		// for the page and
+		assert_eq!($absgp - ($absgp % 3), pck.absgp_page - 2);
+		// b) ensure the packet's content matches with the one we
+		// have put in. This is another insurance.
+		test_arr_eq!(pck.data, gen_pck($absgp, &pck.data.len() / 4));
+	};
+}
+macro_rules! ensure_continues_r {
+	($r:expr, $absgp:expr) => {
+		// Ensure the stream continues normally
+		let pck = $r.read_packet().unwrap();
+		test_arr_eq!(pck.data, gen_pck($absgp, &pck.data.len() / 4));
+		let pck = $r.read_packet().unwrap();
+		test_arr_eq!(pck.data, gen_pck($absgp + 1, &pck.data.len() / 4));
+		let pck = $r.read_packet().unwrap();
+		test_arr_eq!(pck.data, gen_pck($absgp + 2, &pck.data.len() / 4));
+		let pck = $r.read_packet().unwrap();
+		test_arr_eq!(pck.data, gen_pck($absgp + 3, &pck.data.len() / 4));
+	};
+}
+
 #[test]
 fn test_seeking() {
 	let pck_count = 402;
@@ -225,34 +258,12 @@ fn test_seeking() {
 		let mut r = PacketReader::new(c);
 		macro_rules! test_seek {
 			($absgp:expr) => {
-				// First, perform the seek
-				r.seek_absgp(None, $absgp).unwrap();
-				// Then go to the searched packet inside the page
-				// We know that all groups of three packets form one.
-				for _ in 0 .. $absgp % 3 {
-					r.read_packet().unwrap();
-				}
-				// Now read the actual packet we are interested in and
-				let pck = r.read_packet().unwrap();
-				// a) ensure we have a correct absolute granule pos
-				// for the page and
-				assert_eq!($absgp - ($absgp % 3), pck.absgp_page - 2);
-				// b) ensure the packet's content matches with the one we
-				// have put in. This is another insurance.
-				test_arr_eq!(pck.data, gen_pck($absgp, &pck.data.len() / 4));
+				test_seek_r!(r, $absgp)
 			};
 		}
 		macro_rules! ensure_continues {
 			($absgp:expr) => {
-				// Ensure the stream continues normally
-				let pck = r.read_packet().unwrap();
-				test_arr_eq!(pck.data, gen_pck($absgp, &pck.data.len() / 4));
-				let pck = r.read_packet().unwrap();
-				test_arr_eq!(pck.data, gen_pck($absgp + 1, &pck.data.len() / 4));
-				let pck = r.read_packet().unwrap();
-				test_arr_eq!(pck.data, gen_pck($absgp + 2, &pck.data.len() / 4));
-				let pck = r.read_packet().unwrap();
-				test_arr_eq!(pck.data, gen_pck($absgp + 3, &pck.data.len() / 4));
+				ensure_continues_r!(r, $absgp)
 			};
 		}
 		test_seek!(32);
