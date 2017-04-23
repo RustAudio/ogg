@@ -140,7 +140,8 @@ impl <T :io::Write> PacketWriter<T> {
 				// (including 0)
 				pg.cur_pg_lacing[segment_in_page_i as usize] = last_data_segment_size;
 			}
-			segment_in_page_i = segment_in_page_i.wrapping_add(1);
+			pg.segment_cnt = segment_in_page_i + 1;
+			segment_in_page_i = (segment_in_page_i + 1) % 255;
 			if segment_in_page_i == 0 {
 				if segment_i + 1 < needed_segments {
 					// We have to flush a page, but we know there are more to come...
@@ -148,10 +149,11 @@ impl <T :io::Write> PacketWriter<T> {
 					try!(PacketWriter::write_page(&mut self.wtr, serial, pg,
 						false, absgp));
 				} else {
-					// We have to write a page end, and its the very last in the stream
+					// We have to write a page end, and its the very last
+					// we need to write
 					try!(PacketWriter::write_page(&mut self.wtr,
 						serial, pg, is_end_stream, absgp));
-					// Not actually required either
+					// Not actually required
 					// (it is always None except if we set it to Some directly
 					// before we call write_page)
 					pg.pck_this_overflow_idx = None;
@@ -160,7 +162,6 @@ impl <T :io::Write> PacketWriter<T> {
 				}
 				at_page_end = true;
 			}
-			pg.segment_cnt = segment_in_page_i;
 		}
 		if (inf != PacketWriteEndInfo::NormalPacket) && !at_page_end {
 			// Write a page end
@@ -251,7 +252,16 @@ impl <T :io::Write> PacketWriter<T> {
 		pg.sequence_num += 1;
 
 		pg.segment_cnt = 0;
-		pg.cur_pg_data.clear();
+		// If we couldn't fully write the last
+		// packet, we need to keep it for the next page,
+		// otherwise just clear everything.
+		if pg.pck_this_overflow_idx.is_some() {
+			let d = pg.cur_pg_data.pop().unwrap();
+			pg.cur_pg_data.clear();
+			pg.cur_pg_data.push(d);
+		} else {
+			pg.cur_pg_data.clear();
+		}
 
 		pg.pck_last_overflow_idx = pg.pck_this_overflow_idx;
 		pg.pck_this_overflow_idx = None;
