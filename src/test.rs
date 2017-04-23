@@ -254,43 +254,42 @@ fn test_seeking() {
 		}
 	}
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
-	{
-		let mut r = PacketReader::new(c);
-		macro_rules! test_seek {
-			($absgp:expr) => {
-				test_seek_r!(r, $absgp)
-			};
-		}
-		macro_rules! ensure_continues {
-			($absgp:expr) => {
-				ensure_continues_r!(r, $absgp)
-			};
-		}
-		test_seek!(32);
-		test_seek!(300);
-		test_seek!(314);
-		test_seek!(100);
-		ensure_continues!(101);
-		test_seek!(10);
-		ensure_continues!(11);
-		// Ensure that if we seek to the same place multiple times, it doesn't
-		// fill data needlessly.
-		r.seek_absgp(None, 377).unwrap();
-		r.seek_absgp(None, 377).unwrap();
-		test_seek!(377);
-		ensure_continues!(378);
-		// Ensure that if we seek to the same place multiple times, it doesn't
-		// fill data needlessly.
-		r.seek_absgp(None, 200).unwrap();
-		r.seek_absgp(None, 200).unwrap();
-		test_seek!(200);
-		ensure_continues!(201);
-		// Ensure the final page can be sought to
-		test_seek!(401);
-		// TODO after we sought to the final page, we should be able to seek
-		// before it again. Right now this doesn't work.
-		// test_seek!(250);
+
+	let mut r = PacketReader::new(c);
+	macro_rules! test_seek {
+		($absgp:expr) => {
+			test_seek_r!(r, $absgp)
+		};
 	}
+	macro_rules! ensure_continues {
+		($absgp:expr) => {
+			ensure_continues_r!(r, $absgp)
+		};
+	}
+	test_seek!(32);
+	test_seek!(300);
+	test_seek!(314);
+	test_seek!(100);
+	ensure_continues!(101);
+	test_seek!(10);
+	ensure_continues!(11);
+	// Ensure that if we seek to the same place multiple times, it doesn't
+	// fill data needlessly.
+	r.seek_absgp(None, 377).unwrap();
+	r.seek_absgp(None, 377).unwrap();
+	test_seek!(377);
+	ensure_continues!(378);
+	// Ensure that if we seek to the same place multiple times, it doesn't
+	// fill data needlessly.
+	r.seek_absgp(None, 200).unwrap();
+	r.seek_absgp(None, 200).unwrap();
+	test_seek!(200);
+	ensure_continues!(201);
+	// Ensure the final page can be sought to
+	test_seek!(401);
+	// TODO after we sought to the final page, we should be able to seek
+	// before it again. Right now this doesn't work.
+	// test_seek!(250);
 }
 
 // TODO add seeking tests for more cases:
