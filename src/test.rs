@@ -21,7 +21,7 @@ macro_rules! test_arr_eq {
 }
 
 #[test]
-fn test_ogg_packet_rw() {
+fn test_packet_rw() {
 	let mut c = Cursor::new(Vec::new());
 	let test_arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
@@ -130,7 +130,7 @@ fn test_page_end_after_first_packet() {
 }
 
 #[test]
-fn test_ogg_packet_write() {
+fn test_packet_write() {
 	let mut c = Cursor::new(Vec::new());
 
 	// Test page taken from real Ogg file
