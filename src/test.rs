@@ -12,9 +12,11 @@ use std::io::{Cursor, Seek, SeekFrom};
 
 macro_rules! test_arr_eq {
 	($a_arr:expr, $b_arr:expr) => {
-		for i in 0 .. $b_arr.len() {
-			if $a_arr[i] != $b_arr[i] {
-				panic!("Mismatch of values at index {}: {} {}", i, $a_arr[i], $b_arr[i]);
+		let a_arr = &$a_arr;
+		let b_arr = &$b_arr;
+		for i in 0 .. b_arr.len() {
+			if a_arr[i] != b_arr[i] {
+				panic!("Mismatch of values at index {}: {} {}", i, a_arr[i], b_arr[i]);
 			}
 		}
 	}
