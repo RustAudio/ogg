@@ -649,10 +649,10 @@ impl UntilPageHeaderReader {
 			Found => Ok(Res::Found),
 		}
 	}
-	pub fn get_header(&self) -> &[u8; 27] {
+	pub fn into_header(self) -> [u8; 27] {
 		use self::UntilPageHeaderReaderMode::*;
 		match self.mode {
-			Found => &(self.ret_buf),
+			Found => self.ret_buf,
 			_ => panic!("wrong mode"),
 		}
 	}
@@ -713,7 +713,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				SeekNeeded => try!(r.do_seek(&mut self.rdr))
 			}
 		}
-		Ok(r.get_header().clone())
+		Ok(r.into_header())
 	}
 
 	/// Parses and reads a new OGG page
