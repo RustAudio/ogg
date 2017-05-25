@@ -505,6 +505,7 @@ enum UntilPageHeaderReaderMode {
 }
 
 enum UntilPageHeaderResult {
+	Eof,
 	Found,
 	ReadNeeded,
 	SeekNeeded,
@@ -574,7 +575,18 @@ impl UntilPageHeaderReader {
 
 		if rd_len == 0 {
 			// Reached EOF.
-			try!(Err(OggReadError::NoCapturePatternFound));
+			if self.read_amount == 0 {
+				// If we have read nothing yet, there is no data
+				// but ogg data, meaning the stream ends legally
+				// and without corruption.
+				return Ok(Res::Eof);
+			} else {
+				// There is most likely a corruption here.
+				// I'm not sure, but the ogg spec doesn't say that
+				// random data past the last ogg page is allowed,
+				// so we just assume its not allowed.
+				try!(Err(OggReadError::NoCapturePatternFound));
+			}
 		}
 		self.read_amount += rd_len;
 
@@ -684,16 +696,21 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		self.rdr
 	}
 	/// Reads a packet, and returns it on success.
-	pub fn read_packet(&mut self) -> Result<Packet, OggReadError> {
+	///
+	/// Ok(None) is returned if the physical stream has ended.
+	pub fn read_packet(&mut self) -> Result<Option<Packet>, OggReadError> {
 		// Read pages until we got a valid entire packet
 		// (packets may span multiple pages, so reading one page
 		// doesn't always suffice to give us a valid packet)
 		loop {
 			if let Some(pck) = self.base_pck_rdr.read_packet() {
-				return Ok(pck);
+				return Ok(Some(pck));
 			}
 			let page = try!(self.read_ogg_page());
-			try!(self.base_pck_rdr.push_page(page));
+			match page {
+				Some(page) => try!(self.base_pck_rdr.push_page(page)),
+				None => return Ok(None),
+			}
 		}
 	}
 
@@ -702,18 +719,22 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// If no new page header is immediately found, it performs a "recapture",
 	/// meaning it searches for the capture pattern, and if it finds it, it
 	/// reads the complete first 27 bytes of the header, and returns them.
-	fn read_until_pg_header(&mut self) -> Result<[u8; 27], OggReadError> {
+	///
+	/// Ok(None) is returned if the stream has ended without an uncompleted page
+	/// or non page data after the last page (if any) present.
+	fn read_until_pg_header(&mut self) -> Result<Option<[u8; 27]>, OggReadError> {
 		let mut r = UntilPageHeaderReader::new();
 		use self::UntilPageHeaderResult::*;
 		let mut res = try!(r.do_read(&mut self.rdr));
 		loop {
 			res = match res {
+				Eof => return Ok(None),
 				Found => break,
 				ReadNeeded => try!(r.do_read(&mut self.rdr)),
 				SeekNeeded => try!(r.do_seek(&mut self.rdr))
 			}
 		}
-		Ok(r.into_header())
+		Ok(Some(r.into_header()))
 	}
 
 	/// Parses and reads a new OGG page
@@ -721,8 +742,11 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// To support seeking this does not assume that the capture pattern
 	/// is at the current reader position.
 	/// Instead it searches until it finds the capture pattern.
-	fn read_ogg_page(&mut self) -> Result<OggPage, OggReadError> {
-		let header_buf :[u8; 27] = try!(self.read_until_pg_header());
+	fn read_ogg_page(&mut self) -> Result<Option<OggPage>, OggReadError> {
+		let header_buf :[u8; 27] = match try!(self.read_until_pg_header()) {
+			Some(s) => s,
+			None => return Ok(None)
+		};
 		let (mut pg_prs, page_segments) = try!(PageParser::new(header_buf));
 
 		let mut segments_buf = vec![0; page_segments]; // TODO fix this, we initialize memory for NOTHING!!! Out of some reason, this is seen as "unsafe" by rustc.
@@ -733,7 +757,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		let mut packet_data = vec![0; page_siz as usize];
 		try!(self.rdr.read_exact(&mut packet_data));
 
-		pg_prs.parse_packet_data(packet_data)
+		Ok(Some(try!(pg_prs.parse_packet_data(packet_data))))
 	}
 
 	/// Seeks the underlying reader
@@ -761,14 +785,24 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// Note that the `None` case is only intended for streams
 	/// where only one logical stream exists, the seek may misbehave
 	/// if `Ǹone` gets passed when multiple streams exist.
+	///
+	/// The returned bool indicates whether the seek was successful.
 	pub fn seek_absgp(&mut self, stream_serial :Option<u32>,
-			pos_goal :u64) -> Result<(), OggReadError> {
+			pos_goal :u64) -> Result<bool, OggReadError> {
 		use std::cmp::Ordering;
 		macro_rules! found {
 			($pos:expr) => {{
 				try!(self.rdr.seek(SeekFrom::Start($pos)));
 				self.base_pck_rdr.update_after_seek();
-				return Ok(());
+				return Ok(true);
+			}};
+		}
+		macro_rules! bt {
+			($e:expr) => {{
+				match try!($e) {
+					Some(s) => s,
+					None => return Ok(false),
+				}
 			}};
 		}
 		// The task of this macro is to read to the
@@ -781,7 +815,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				let mut pg;
 				loop {
 					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
-					pg = try!(self.read_ogg_page());
+					pg = bt!(self.read_ogg_page());
 					match stream_serial {
 						// Continue the search if we encounter a
 						// page with a different stream serial
@@ -796,9 +830,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 						// found a position that can serve as end post of the search.
 						_ if pg.pg_prs.bi.absgp > $goal => break,
 						// Stop the search if the stream has ended.
-						// TODO the seek process should fail in this case:
-						// the absgp sought is past the last page of the stream.
-						_ if pg.pg_prs.bi.last_page => break,
+						_ if pg.pg_prs.bi.last_page => return Ok(false),
 						// If the page is not interesting, seek over it.
 						_ => (),
 					}
@@ -812,7 +844,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				let mut pg;
 				loop {
 					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
-					pg = try!(self.read_ogg_page());
+					pg = bt!(self.read_ogg_page());
 					// Continue the search if we encounter a
 					// page with a different stream serial,
 					// otherwise the search for a page with a

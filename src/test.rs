@@ -40,11 +40,11 @@ fn test_packet_rw() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut r = PacketReader::new(c);
-		let p1 = r.read_packet().unwrap();
+		let p1 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr, *p1.data);
-		let p2 = r.read_packet().unwrap();
+		let p2 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr_2, *p2.data);
-		let p3 = r.read_packet().unwrap();
+		let p3 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
 
@@ -68,11 +68,11 @@ fn test_packet_rw() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut r = PacketReader::new(&mut c);
-		let p1 = r.read_packet().unwrap();
+		let p1 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr, *p1.data);
-		let p2 = r.read_packet().unwrap();
+		let p2 = r.read_packet().unwrap().unwrap();
 		test_arr_eq!(test_arr_2, *p2.data);
-		let p3 = r.read_packet().unwrap();
+		let p3 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
 
@@ -94,9 +94,9 @@ fn test_packet_rw() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut r = PacketReader::new(c);
-		let p2 = r.read_packet().unwrap();
+		let p2 = r.read_packet().unwrap().unwrap();
 		test_arr_eq!(test_arr_2, *p2.data);
-		let p3 = r.read_packet().unwrap();
+		let p3 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
 }
@@ -122,11 +122,11 @@ fn test_page_end_after_first_packet() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut r = PacketReader::new(c);
-		let p1 = r.read_packet().unwrap();
+		let p1 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr, *p1.data);
-		let p2 = r.read_packet().unwrap();
+		let p2 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr_2, *p2.data);
-		let p3 = r.read_packet().unwrap();
+		let p3 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
 }
@@ -185,7 +185,7 @@ fn test_write_large() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut r = PacketReader::new(c);
-		let p = r.read_packet().unwrap();
+		let p = r.read_packet().unwrap().unwrap();
 		test_arr_eq!(test_arr, *p.data);
 	}
 }
@@ -239,10 +239,10 @@ macro_rules! test_seek_r {
 		// Then go to the searched packet inside the page
 		// We know that all groups of three packets form one.
 		for _ in 0 .. $absgp % 3 {
-			$r.read_packet().unwrap();
+			$r.read_packet().unwrap().unwrap();
 		}
 		// Now read the actual packet we are interested in and
-		let pck = $r.read_packet().unwrap();
+		let pck = $r.read_packet().unwrap().unwrap();
 		// a) ensure we have a correct absolute granule pos
 		// for the page and
 		assert_eq!($absgp - ($absgp % 3), pck.absgp_page - 2);
@@ -254,13 +254,13 @@ macro_rules! test_seek_r {
 macro_rules! ensure_continues_r {
 	($r:expr, $absgp:expr) => {
 		// Ensure the stream continues normally
-		let pck = $r.read_packet().unwrap();
+		let pck = $r.read_packet().unwrap().unwrap();
 		test_arr_eq!(pck.data, gen_pck($absgp, &pck.data.len() / 4));
-		let pck = $r.read_packet().unwrap();
+		let pck = $r.read_packet().unwrap().unwrap();
 		test_arr_eq!(pck.data, gen_pck($absgp + 1, &pck.data.len() / 4));
-		let pck = $r.read_packet().unwrap();
+		let pck = $r.read_packet().unwrap().unwrap();
 		test_arr_eq!(pck.data, gen_pck($absgp + 2, &pck.data.len() / 4));
-		let pck = $r.read_packet().unwrap();
+		let pck = $r.read_packet().unwrap().unwrap();
 		test_arr_eq!(pck.data, gen_pck($absgp + 3, &pck.data.len() / 4));
 	};
 }

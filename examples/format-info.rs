@@ -38,7 +38,7 @@ fn run() -> Result<(), std::io::Error> {
 	loop {
 		let r = pck_rdr.read_packet();
 		match r {
-			Ok(p) => {
+			Ok(Some(p)) => {
 				byte_ctr += p.data.len() as u64;
 				dump_pck_info(&p);
 				let elapsed = begin.elapsed();
@@ -56,6 +56,8 @@ fn run() -> Result<(), std::io::Error> {
 				// ended stream to stop decoding the file and thus not
 				// encounter an error.
 			},
+			// End of stream
+			Ok(None) => break,
 			Err(e) => {
 				println!("Encountered Error: {:?}", e);
 				break;

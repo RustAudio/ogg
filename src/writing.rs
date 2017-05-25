@@ -301,11 +301,11 @@ fn test_recapture() {
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
 	{
 		let mut r = PacketReader::new(c);
-		let p1 = r.read_packet().unwrap();
+		let p1 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr, *p1.data);
-		let p2 = r.read_packet().unwrap();
+		let p2 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr_2, *p2.data);
-		let p3 = r.read_packet().unwrap();
+		let p3 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
 }
