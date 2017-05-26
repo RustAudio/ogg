@@ -222,7 +222,13 @@ impl XorShift {
 fn gen_pck(seed :u32, len_d_four :usize) -> Box<[u8]> {
 	let mut ret = Vec::with_capacity(len_d_four * 4);
 	let mut xs = XorShift::from_two((seed, len_d_four as u32));
-	for _ in 0..len_d_four {
+	if len_d_four > 0 {
+		ret.push(seed as u8);
+		ret.push((seed >> 8) as u8);
+		ret.push((seed >> 16) as u8);
+		ret.push((seed >> 24) as u8);
+	}
+	for _ in 1..len_d_four {
 		let v = xs.next();
 		ret.push(v as u8);
 		ret.push((v >> 8) as u8);
