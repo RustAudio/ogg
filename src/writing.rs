@@ -45,7 +45,8 @@ struct CurrentPageValues {
 	/// Points to the first unwritten position in cur_pg_lacing.
 	segment_cnt :u8,
 	cur_pg_lacing :[u8; 255],
-	cur_pg_data :Vec<Box<[u8]>>,
+	/// The data and the absgp's of the packets
+	cur_pg_data :Vec<(Box<[u8]>, u64)>,
 
 	/// Some(offs), if the last packet
 	/// couldn't make it fully into this page, and
@@ -124,7 +125,7 @@ impl <T :io::Write> PacketWriter<T> {
 		);
 
 		let cont_len = pck_cont.len();
-		pg.cur_pg_data.push(pck_cont);
+		pg.cur_pg_data.push((pck_cont, absgp));
 
 		let last_data_segment_size = (cont_len % 255) as u8;
 		let needed_segments :usize = (cont_len / 255) + 1;
@@ -147,12 +148,12 @@ impl <T :io::Write> PacketWriter<T> {
 					// We have to flush a page, but we know there are more to come...
 					pg.pck_this_overflow_idx = Some((segment_i + 1) * 255);
 					try!(PacketWriter::write_page(&mut self.wtr, serial, pg,
-						false, absgp));
+						false));
 				} else {
 					// We have to write a page end, and its the very last
 					// we need to write
 					try!(PacketWriter::write_page(&mut self.wtr,
-						serial, pg, is_end_stream, absgp));
+						serial, pg, is_end_stream));
 					// Not actually required
 					// (it is always None except if we set it to Some directly
 					// before we call write_page)
@@ -166,7 +167,7 @@ impl <T :io::Write> PacketWriter<T> {
 		if (inf != PacketWriteEndInfo::NormalPacket) && !at_page_end {
 			// Write a page end
 			try!(PacketWriter::write_page(&mut self.wtr, serial, pg,
-				is_end_stream, absgp));
+				is_end_stream));
 
 			pg.pck_last_overflow_idx = None;
 
@@ -178,7 +179,7 @@ impl <T :io::Write> PacketWriter<T> {
 		Ok(())
 	}
 	fn write_page(wtr :&mut T, serial :u32, pg :&mut CurrentPageValues,
-			last_page :bool, absgp :u64)  -> IoResult<()> {
+			last_page :bool)  -> IoResult<()> {
 		{
 			// The page header with everything but the lacing values:
 			let mut hdr_cur = Cursor::new(Vec::with_capacity(27));
@@ -187,27 +188,37 @@ impl <T :io::Write> PacketWriter<T> {
 			if pg.pck_last_overflow_idx.is_some() { flags |= 0x01; }
 			if pg.first_page { flags |= 0x02; }
 			if last_page { flags |= 0x04; }
+
 			try!(hdr_cur.write_u8(flags));
-			try!(hdr_cur.write_u64::<LittleEndian>(absgp));
+
+			let pck_data = &pg.cur_pg_data;
+
+			let mut last_finishing_pck_absgp = (-1i64) as u64;
+			for (idx, &(_, absgp)) in pck_data.iter().enumerate() {
+				if !(idx + 1 == pck_data.len() &&
+						pg.pck_this_overflow_idx.is_some()) {
+					last_finishing_pck_absgp = absgp;
+				}
+			}
+
+			try!(hdr_cur.write_u64::<LittleEndian>(last_finishing_pck_absgp));
 			try!(hdr_cur.write_u32::<LittleEndian>(serial));
 			try!(hdr_cur.write_u32::<LittleEndian>(pg.sequence_num));
 
 			// checksum, calculated later on :)
-			// Don't do excessive checking here (that the seek
-			// succeeded & we are at the right pos now).
-			// Its hopefully not required.
-			try!(hdr_cur.seek(SeekFrom::Current(4)));
+			try!(hdr_cur.write_u32::<LittleEndian>(0));
 
 			try!(hdr_cur.write_u8(pg.segment_cnt));
 
 			let mut hash_calculated :u32;
 
 			let pg_lacing = &pg.cur_pg_lacing[0 .. pg.segment_cnt as usize];
-			let pck_data = &pg.cur_pg_data;
+
 
 			hash_calculated = vorbis_crc32_update(0, hdr_cur.get_ref());
 			hash_calculated = vorbis_crc32_update(hash_calculated, pg_lacing);
-			for (idx, pck) in pck_data.iter().enumerate() {
+
+			for (idx, &(ref pck, _)) in pck_data.iter().enumerate() {
 				let mut start :usize = 0;
 				if idx == 0 { if let Some(idx) = pg.pck_last_overflow_idx {
 					start = idx;
@@ -232,7 +243,7 @@ impl <T :io::Write> PacketWriter<T> {
 			// Now all is done, write the stuff!
 			try!(wtr.write_all(hdr_cur.get_ref()));
 			try!(wtr.write_all(pg_lacing));
-			for (idx, pck) in pck_data.iter().enumerate() {
+			for (idx, &(ref pck, _)) in pck_data.iter().enumerate() {
 				let mut start :usize = 0;
 				if idx == 0 { if let Some(idx) = pg.pck_last_overflow_idx {
 					start = idx;
@@ -267,6 +278,12 @@ impl <T :io::Write> PacketWriter<T> {
 		pg.pck_this_overflow_idx = None;
 
 		return Ok(());
+	}
+}
+
+impl<T :io::Seek + io::Write> PacketWriter<T> {
+	pub fn get_current_offs(&mut self) -> Result<u64, io::Error> {
+		self.wtr.seek(SeekFrom::Current(0))
 	}
 }
 
