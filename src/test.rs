@@ -266,6 +266,40 @@ macro_rules! ensure_continues_r {
 }
 
 #[test]
+fn test_byte_seeking_continued() {
+	let mut c = Cursor::new(Vec::new());
+
+	let off;
+
+	{
+		let mut w = PacketWriter::new(&mut c);
+		let np = PacketWriteEndInfo::NormalPacket;
+		let ep = PacketWriteEndInfo::EndPage;
+		let es = PacketWriteEndInfo::EndStream;
+
+		w.write_packet(gen_pck(1, 300), 0xdeadb33f, ep, 1).unwrap();
+		w.write_packet(gen_pck(2, 270_000), 0xdeadb33f, np, 2).unwrap();
+		off = w.get_current_offs().unwrap();
+		w.write_packet(gen_pck(3, 270_000), 0xdeadb33f, np, 3).unwrap();
+		w.write_packet(gen_pck(4, 270_000), 0xdeadb33f, es, 4).unwrap();
+	}
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+
+	let mut r = PacketReader::new(c);
+	let pck = r.read_packet().unwrap().unwrap();
+	assert_eq!(1, pck.absgp_page);
+	test_arr_eq!(pck.data, gen_pck(1, &pck.data.len() / 4));
+	// Jump over the second packet
+	assert_eq!(r.seek_bytes(SeekFrom::Start(off)).unwrap(), off);
+	let pck = r.read_packet().unwrap().unwrap();
+	assert_eq!(3, pck.absgp_page);
+	test_arr_eq!(pck.data, gen_pck(3, &pck.data.len() / 4));
+	let pck = r.read_packet().unwrap().unwrap();
+	assert_eq!(4, pck.absgp_page);
+	test_arr_eq!(pck.data, gen_pck(4, &pck.data.len() / 4));
+}
+
+#[test]
 fn test_seeking() {
 	let pck_count = 402;
 	let mut rng = XorShift::from_two((0x9899eb03, 0x54138143));
