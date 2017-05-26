@@ -131,6 +131,26 @@ pub struct OggPage {
 	pg_prs :PageParser,
 }
 
+impl OggPage {
+	/// Returns whether there is an ending packet in the page
+	fn has_packet_end(&self) -> bool {
+		(self.pg_prs.bi.packet_positions.len() -
+			self.pg_prs.bi.ends_with_continued as usize) > 0
+	}
+	/// Returns whether there is a packet that both
+	/// starts and ends inside the page
+	fn has_whole_packet(&self) -> bool {
+		self.pg_prs.bi.packet_positions.len().saturating_sub(
+			self.pg_prs.bi.ends_with_continued as usize +
+			self.pg_prs.bi.starts_with_continued as usize) > 0
+	}
+	/// Returns whether there is a starting packet in the page
+	fn has_packet_start(&self) -> bool {
+		(self.pg_prs.bi.packet_positions.len() -
+			self.pg_prs.bi.starts_with_continued as usize) > 0
+	}
+}
+
 /**
 Helper struct for parsing pages
 
@@ -777,6 +797,8 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	///
 	/// More specifically, it seeks to the first Ogg page
 	/// that has an `absgp` greater or equal to the specified one.
+	/// In the case of continued packets, the seek operation may also end up
+	/// at the last page that comes before such a page and has a packet start.
 	///
 	/// The passed `stream_serial` parameter controls the stream
 	/// serial number to filter our search for. If its `None`, no
@@ -792,6 +814,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		use std::cmp::Ordering;
 		macro_rules! found {
 			($pos:expr) => {{
+				// println!("found: {}", $pos);
 				try!(self.rdr.seek(SeekFrom::Start($pos)));
 				self.base_pck_rdr.update_after_seek();
 				return Ok(true);
@@ -814,26 +837,27 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				let mut pos;
 				let mut pg;
 				loop {
-					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
-					pg = bt!(self.read_ogg_page());
-					match stream_serial {
-						// Continue the search if we encounter a
-						// page with a different stream serial
-						Some(s) if pg.pg_prs.stream_serial != s => (),
-						// If the absgp matches our goal, the seek process is done.
-						// This is a nice shortcut as we don't need to perform
-						// the remainder of the seek process any more.
-						// Of course, an exact match only happens in the fewest
-						// of cases
-						_ if pg.pg_prs.bi.absgp == $goal => found!(pos),
-						// If we found a page past our goal, we already
-						// found a position that can serve as end post of the search.
-						_ if pg.pg_prs.bi.absgp > $goal => break,
-						// Stop the search if the stream has ended.
-						_ if pg.pg_prs.bi.last_page => return Ok(false),
-						// If the page is not interesting, seek over it.
-						_ => (),
+					let (n_pos, n_pg) = pg_read_match_serial!();
+					pos = n_pos;
+					pg = n_pg;
+					// If the absgp matches our goal, the seek process is done.
+					// This is a nice shortcut as we don't need to perform
+					// the remainder of the seek process any more.
+					// Of course, an exact match only happens in the fewest
+					// of cases
+					if pg.pg_prs.bi.absgp == $goal {
+						found!(pos);
 					}
+					// If we found a page past our goal, we already
+					// found a position that can serve as end post of the search.
+					if pg.pg_prs.bi.absgp > $goal {
+						break;
+					}
+					// Stop the search if the stream has ended.
+					if pg.pg_prs.bi.last_page {
+						return Ok(false)
+					}
+					// If the page is not interesting, seek over it.
 				}
 				(pos, pg)
 			}};
@@ -842,16 +866,33 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			{} => {{
 				let mut pos;
 				let mut pg;
+				let mut continued_pck_start = None;
 				loop {
 					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
 					pg = bt!(self.read_ogg_page());
-					// Continue the search if we encounter a
-					// page with a different stream serial,
-					// otherwise the search for a page with a
-					// "matching" serial is done.
+					/*println!("absgp {} serial {} wh {} pe {} @ {}",
+						pg.pg_prs.bi.absgp, pg.pg_prs.bi.sequence_num,
+						pg.has_whole_packet(), pg.has_packet_end(), pos);// */
+
 					match stream_serial {
+						// Continue the search if we encounter a
+						// page with a different stream serial
 						Some(s) if pg.pg_prs.stream_serial != s => (),
-						_ => break,
+						_ => match continued_pck_start {
+								None if pg.has_whole_packet() => break,
+								None if pg.has_packet_start() => {
+									continued_pck_start = Some(pos);
+								},
+								Some(s) if pg.has_packet_end() => {
+									// We have remembered a packet start,
+									// and have just encountered a packet end.
+									// Return the position of the start with the
+									// info from the end (for the absgp).
+									pos = s;
+									break;
+								},
+								_ => (),
+						},
 					}
 				}
 				(pos, pg)
@@ -863,10 +904,9 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		// end of the file, then bisect those boundaries successively
 		// until a page is found.
 
-		// TODO also support -1 absgp's (no packets finishing on the page)
-
 		//println!("seek start. goal = {}", pos_goal);
 		let ab_of = |pg :&OggPage| { pg.pg_prs.bi.absgp };
+		let seq_of = |pg :&OggPage| { pg.pg_prs.bi.sequence_num };
 		// First, find initial "boundaries"
 		let (pos, pg) = pg_read_match_serial!();
 		let (mut begin_pos, mut begin_pg, mut end_pos, mut end_pg) =
@@ -899,7 +939,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		loop {
 			// Search is done if the two limits are the same page,
 			// or consecutive pages.
-			if end_pg.pg_prs.bi.sequence_num - begin_pg.pg_prs.bi.sequence_num <= 1 {
+			if seq_of(&end_pg) - seq_of(&begin_pg) <= 1 {
 				found!(end_pos);
 			}
 			// Perform the bisection step
@@ -910,6 +950,38 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				ab_of(&begin_pg), ab_of(&end_pg), ab_of(&pg),
 				begin_pos, end_pos, pos);// */
 
+			if seq_of(&end_pg) == seq_of(&pg) ||
+					seq_of(&begin_pg) == seq_of(&pg) {
+				//println!("switching to linear.");
+				// The bisection seek doesn't bring us any further.
+				// Switch to a linear seek to get the last details.
+				let mut pos;
+				let mut pg;
+				let mut last_packet_end_pos = begin_pos;
+				try!(self.rdr.seek(SeekFrom::Start(begin_pos)));
+				loop {
+					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
+					pg = bt!(self.read_ogg_page());
+					/*println!("absgp {} pck_start {} whole_pck {} pck_end {} @ {} {}",
+						ab_of(&pg), pg.has_packet_start(), pg.has_whole_packet(),
+						pg.has_packet_end(),
+						pos, last_packet_end_pos);// */
+					match stream_serial {
+						// Continue the search if we encounter a
+						// page with a different stream serial,
+						// or one with an absgp of -1.
+						Some(s) if pg.pg_prs.stream_serial != s => (),
+						_ if ab_of(&pg) == -1i64 as u64 => (),
+						// The page is found if the absgp is >= our goal
+						_ if ab_of(&pg) >= pos_goal => found!(last_packet_end_pos),
+						// If we encounter a page with a packet start,
+						// update accordingly.
+						_ => if pg.has_packet_end() {
+							last_packet_end_pos = pos;
+						},
+					}
+				}
+			}
 			if ab_of(&pg) >= pos_goal {
 				end_pos = pos;
 				end_pg = pg;

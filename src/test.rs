@@ -240,18 +240,21 @@ fn gen_pck(seed :u32, len_d_four :usize) -> Box<[u8]> {
 
 macro_rules! test_seek_r {
 	($r:expr, $absgp:expr) => {
+		test_seek_r!($r, $absgp, +, 0);
+	};
+	($r:expr, $absgp:expr, $o:tt, $m:expr) => {
 		// First, perform the seek
 		$r.seek_absgp(None, $absgp).unwrap();
 		// Then go to the searched packet inside the page
 		// We know that all groups of three packets form one.
-		for _ in 0 .. $absgp % 3 {
+		for _ in 0 .. ($absgp % 3) $o $m {
 			$r.read_packet().unwrap().unwrap();
 		}
 		// Now read the actual packet we are interested in and
 		let pck = $r.read_packet().unwrap().unwrap();
 		// a) ensure we have a correct absolute granule pos
 		// for the page and
-		assert_eq!($absgp - ($absgp % 3), pck.absgp_page - 2);
+		assert!(($absgp - pck.absgp_page as i64).abs() <= 3);
 		// b) ensure the packet's content matches with the one we
 		// have put in. This is another insurance.
 		test_arr_eq!(pck.data, gen_pck($absgp, &pck.data.len() / 4));
@@ -362,7 +365,6 @@ fn test_seeking() {
 }
 
 // TODO add seeking tests for more cases:
-//     * -1 absgp pages (continued pages)
 //     * multiple logical streams
 //     * seeking to unavailable positions
 //     * Situation where the search ended in a page where the last packet ending
@@ -370,3 +372,90 @@ fn test_seeking() {
 //       that it doesn't start on the page but before (and is the only packet
 //       ending in the page, but that's irrelevant). Here we must seek back to the
 //       beginning of the packet.
+
+#[test]
+/// Test for pages with -1 absgp (no packet ending there)
+fn test_seeking_continued() {
+	let pck_count = 402;
+
+	// Array of length to add to the randomized packet size
+	// From this array, we take a random index to determine
+	// the value for the current packet.
+	let mut pck_len_add = [0; 8];
+
+	// One page can contain at most 255 * 255 = 65025
+	// bytes of payload packet data.
+	// Therefore, to force a page that contains no
+	// page ending, we need more than double that number.
+	// 65025 * 2 = 130_050.
+
+	// 1/4 for large packets that guaranteed produce at
+	// least one -1 absgp page each.
+	pck_len_add[0] = 133_000;
+	pck_len_add[1] = 133_000;
+	// 1/8 for really large packets that produce >= 3
+	// -1 abs pages each.
+	pck_len_add[2] = 270_000;
+	// 1/4 for big fill packets
+	// one packet is full after a few of them
+	pck_len_add[3] =  30_000;
+	pck_len_add[4] =  13_000;
+	// 3/8 for small fill packets (0-127 bytes)
+
+	let mut rng = XorShift::from_two((0x9899eb03, 0x54138143));
+
+	let mut c = Cursor::new(Vec::new());
+
+	{
+		let mut w = PacketWriter::new(&mut c);
+		let np = PacketWriteEndInfo::NormalPacket;
+		let ep = PacketWriteEndInfo::EndPage;
+
+		for ctr in 0..pck_count {
+			let r = rng.next() as usize;
+			let size = (r & 127) + pck_len_add[(r >> 8) & 7] >> 2;
+			w.write_packet(gen_pck(ctr, size), 0xdeadb33f,
+				if (ctr + 1) % 3 == 0 { ep } else { np }, ctr as u64).unwrap();
+		}
+	}
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+
+	let mut r = PacketReader::new(c);
+	macro_rules! test_seek {
+		($absgp:expr) => {
+			test_seek_r!(r, $absgp)
+		};
+		($absgp:expr, $o:tt, $m:expr) => {
+			test_seek_r!(r, $absgp, $o, $m)
+		};
+	}
+	macro_rules! ensure_continues {
+		($absgp:expr) => {
+			ensure_continues_r!(r, $absgp)
+		};
+	}
+	test_seek!(32);
+	test_seek!(300,+,2);
+	test_seek!(314,+,2);
+	test_seek!(100,-,1);
+	ensure_continues!(101);
+	test_seek!(10);
+	ensure_continues!(11);
+	// Ensure that if we seek to the same place multiple times, it doesn't
+	// fill data needlessly.
+	r.seek_absgp(None, 377).unwrap();
+	r.seek_absgp(None, 377).unwrap();
+	test_seek!(377);
+	ensure_continues!(378);
+	// Ensure that if we seek to the same place multiple times, it doesn't
+	// fill data needlessly.
+	r.seek_absgp(None, 200).unwrap();
+	r.seek_absgp(None, 200).unwrap();
+	test_seek!(200);
+	ensure_continues!(201);
+	// TODO Ensure the final page can be sought to
+	// test_seek!(401);
+	// TODO after we sought to the final page, we should be able to seek
+	// before it again. Right now this doesn't work.
+	// test_seek!(250);*/
+}
