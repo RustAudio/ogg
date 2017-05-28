@@ -453,8 +453,8 @@ fn test_seeking_continued() {
 	r.seek_absgp(None, 200).unwrap();
 	test_seek!(200);
 	ensure_continues!(201);
-	// TODO Ensure the final page can be sought to
-	// test_seek!(401);
+	// Ensure the final page can be sought to
+	test_seek!(401,-,2);
 	// TODO after we sought to the final page, we should be able to seek
 	// before it again. Right now this doesn't work.
 	// test_seek!(250);*/

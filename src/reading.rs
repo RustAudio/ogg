@@ -483,6 +483,8 @@ impl BasePacketReader {
 							// ends_with_continued state as well.
 							pg_prs.bi.ends_with_continued = false;
 						}
+						// Not actually needed, but good for consistency
+						pg_prs.bi.starts_with_continued = false;
 					}
 				}
 				v.insert(PageInfo {
