@@ -12,7 +12,7 @@ Reading logic
 
 use std::error;
 use std::io;
-use std::io::{Cursor, Read, Write, SeekFrom, Error};
+use std::io::{Cursor, Read, Write, SeekFrom, Error, ErrorKind};
 use byteorder::{ReadBytesExt, LittleEndian};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -732,6 +732,18 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				Some(page) => try!(self.base_pck_rdr.push_page(page)),
 				None => return Ok(None),
 			}
+		}
+	}
+	/// Reads a packet, and returns it on success.
+	///
+	/// The difference to the `read_packet` function is that this function
+	/// returns an Err(_) if the physical stream has ended.
+	/// This function is useful if you expect a new packet to come.
+	pub fn read_packet_expected(&mut self) -> Result<Packet, OggReadError> {
+		match try!(self.read_packet()) {
+			Some(p) => Ok(p),
+			None => try!(Err(Error::new(ErrorKind::UnexpectedEof,
+				"Expected ogg packet but found end of physical stream"))),
 		}
 	}
 
