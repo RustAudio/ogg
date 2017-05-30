@@ -266,8 +266,7 @@ impl PageParser {
 
 	/// Parses the packets data and verifies the checksum.
 	///
-	/// Only after this function has been called
-	/// you should pass on the `PageParser` to later code.
+	/// Returns an `OggPage` to be used by later code.
 	pub fn parse_packet_data(mut self, packet_data :Vec<u8>) ->
 			Result<OggPage, OggReadError> {
 		// Now to hash calculation.
@@ -409,8 +408,8 @@ impl BasePacketReader {
 	/// with its contents.
 	///
 	/// If you want the code to function properly, you should first call
-	/// `parse_segments`, then `parse_packet_data` on the a `PageParser`
-	/// before passing the result to this function.
+	/// `parse_segments`, then `parse_packet_data` on a `PageParser`
+	/// before passing the resulting `OggPage` to this function.
 	pub fn push_page(&mut self, page :OggPage) -> Result<(), OggReadError> {
 		let mut pg_prs = page.pg_prs;
 		match self.page_infos.entry(pg_prs.stream_serial) {
