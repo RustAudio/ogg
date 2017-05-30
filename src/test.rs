@@ -359,9 +359,9 @@ fn test_seeking() {
 	ensure_continues!(201);
 	// Ensure the final page can be sought to
 	test_seek!(401);
-	// TODO after we sought to the final page, we should be able to seek
-	// before it again. Right now this doesn't work.
-	// test_seek!(250);
+	// After we sought to the final page, we should be able to seek
+	// before it again.
+	test_seek!(250);
 }
 
 // TODO add seeking tests for more cases:
@@ -451,7 +451,7 @@ fn test_seeking_continued() {
 	ensure_continues!(201);
 	// Ensure the final page can be sought to
 	test_seek!(401,-,2);
-	// TODO after we sought to the final page, we should be able to seek
-	// before it again. Right now this doesn't work.
-	// test_seek!(250);*/
+	// Aafter we sought to the final page, we should be able to seek
+	// before it again.
+	test_seek!(250,-,1);
 }
