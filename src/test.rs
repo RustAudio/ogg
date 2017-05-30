@@ -367,14 +367,10 @@ fn test_seeking() {
 // TODO add seeking tests for more cases:
 //     * multiple logical streams
 //     * seeking to unavailable positions
-//     * Situation where the search ended in a page where the last packet ending
-//       (the packet that sets the absgp of the page) is a continued one, meaning
-//       that it doesn't start on the page but before (and is the only packet
-//       ending in the page, but that's irrelevant). Here we must seek back to the
-//       beginning of the packet.
 
 #[test]
-/// Test for pages with -1 absgp (no packet ending there)
+/// Test for pages with -1 absgp (no packet ending there),
+/// and generally for continued packets.
 fn test_seeking_continued() {
 	let pck_count = 402;
 
