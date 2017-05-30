@@ -2,7 +2,7 @@
 
 An Ogg decoder and encoder. Implements the [xiph.org Ogg spec](https://www.xiph.org/vorbis/doc/framing.html) in pure Rust.
 
-[Documentation](https://docs.rs/ogg/0.4.1).
+[Documentation](https://docs.rs/ogg/0.5.0).
 
 Note: `.ogg` files are vorbis encoded audio files embedded into an Ogg transport stream.
 There is no extra support for vorbis codec decoding or encoding in this crate,
