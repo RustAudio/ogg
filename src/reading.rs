@@ -155,7 +155,7 @@ Helper struct for parsing pages
 Its created using the `new` function and then its fed more data via the `parse_segments`
 and `parse_packet_data` functions, each called exactly once and in that precise order.
 
-Then later code uses the struct's contents.
+Then later code uses the `OggPage` returned by the `parse_packet_data` function.
 */
 pub struct PageParser {
 	// Members packet_positions, ends_with_continued and packet_count
