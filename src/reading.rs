@@ -127,27 +127,25 @@ impl PageInfo {
 }
 
 /// Contains a fully parsed OGG page.
-pub struct OggPage {
-	pg_prs :PageParser,
-}
+pub struct OggPage(PageParser);
 
 impl OggPage {
 	/// Returns whether there is an ending packet in the page
 	fn has_packet_end(&self) -> bool {
-		(self.pg_prs.bi.packet_positions.len() -
-			self.pg_prs.bi.ends_with_continued as usize) > 0
+		(self.0.bi.packet_positions.len() -
+			self.0.bi.ends_with_continued as usize) > 0
 	}
 	/// Returns whether there is a packet that both
 	/// starts and ends inside the page
 	fn has_whole_packet(&self) -> bool {
-		self.pg_prs.bi.packet_positions.len().saturating_sub(
-			self.pg_prs.bi.ends_with_continued as usize +
-			self.pg_prs.bi.starts_with_continued as usize) > 0
+		self.0.bi.packet_positions.len().saturating_sub(
+			self.0.bi.ends_with_continued as usize +
+			self.0.bi.starts_with_continued as usize) > 0
 	}
 	/// Returns whether there is a starting packet in the page
 	fn has_packet_start(&self) -> bool {
-		(self.pg_prs.bi.packet_positions.len() -
-			self.pg_prs.bi.starts_with_continued as usize) > 0
+		(self.0.bi.packet_positions.len() -
+			self.0.bi.starts_with_continued as usize) > 0
 	}
 }
 
@@ -288,7 +286,7 @@ impl PageParser {
 			try!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
 		}
 		self.segments_or_packets_buf = packet_data;
-		Ok(OggPage { pg_prs : self })
+		Ok(OggPage(self))
 	}
 }
 
@@ -411,7 +409,7 @@ impl BasePacketReader {
 	/// `parse_segments`, then `parse_packet_data` on a `PageParser`
 	/// before passing the resulting `OggPage` to this function.
 	pub fn push_page(&mut self, page :OggPage) -> Result<(), OggReadError> {
-		let mut pg_prs = page.pg_prs;
+		let mut pg_prs = page.0;
 		match self.page_infos.entry(pg_prs.stream_serial) {
 			Entry::Occupied(mut o) => {
 				let inf = o.get_mut();
@@ -857,16 +855,16 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 					// the remainder of the seek process any more.
 					// Of course, an exact match only happens in the fewest
 					// of cases
-					if pg.pg_prs.bi.absgp == $goal {
+					if pg.0.bi.absgp == $goal {
 						found!(pos);
 					}
 					// If we found a page past our goal, we already
 					// found a position that can serve as end post of the search.
-					if pg.pg_prs.bi.absgp > $goal {
+					if pg.0.bi.absgp > $goal {
 						break;
 					}
 					// Stop the search if the stream has ended.
-					if pg.pg_prs.bi.last_page {
+					if pg.0.bi.last_page {
 						return Ok(false)
 					}
 					// If the page is not interesting, seek over it.
@@ -883,13 +881,13 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
 					pg = bt!(self.read_ogg_page());
 					/*println!("absgp {} serial {} wh {} pe {} @ {}",
-						pg.pg_prs.bi.absgp, pg.pg_prs.bi.sequence_num,
+						pg.0.bi.absgp, pg.0.bi.sequence_num,
 						pg.has_whole_packet(), pg.has_packet_end(), pos);// */
 
 					match stream_serial {
 						// Continue the search if we encounter a
 						// page with a different stream serial
-						Some(s) if pg.pg_prs.stream_serial != s => (),
+						Some(s) if pg.0.stream_serial != s => (),
 						_ => match continued_pck_start {
 								None if pg.has_whole_packet() => break,
 								None if pg.has_packet_start() => {
@@ -917,8 +915,8 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		// until a page is found.
 
 		//println!("seek start. goal = {}", pos_goal);
-		let ab_of = |pg :&OggPage| { pg.pg_prs.bi.absgp };
-		let seq_of = |pg :&OggPage| { pg.pg_prs.bi.sequence_num };
+		let ab_of = |pg :&OggPage| { pg.0.bi.absgp };
+		let seq_of = |pg :&OggPage| { pg.0.bi.sequence_num };
 
 		// First, find initial "boundaries"
 		// Seek to the start of the file to get the starting boundary
@@ -965,7 +963,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 						// Continue the search if we encounter a
 						// page with a different stream serial,
 						// or one with an absgp of -1.
-						Some(s) if pg.pg_prs.stream_serial != s => (),
+						Some(s) if pg.0.stream_serial != s => (),
 						_ if ab_of(&pg) == -1i64 as u64 => (),
 						// The page is found if the absgp is >= our goal
 						_ if ab_of(&pg) >= pos_goal => found!(last_packet_end_pos),
