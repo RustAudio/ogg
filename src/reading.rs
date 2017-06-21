@@ -207,7 +207,7 @@ impl PageParser {
 				packet_positions : Vec::new(),
 				ends_with_continued : false,
 			},
-			stream_serial,
+			stream_serial : stream_serial,
 			checksum : header_rdr.read_u32::<LittleEndian>().unwrap(),
 			header_buf : header_buf,
 			packet_count : 0,
