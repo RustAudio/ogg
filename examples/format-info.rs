@@ -7,7 +7,6 @@
 // attached to this source distribution for details.
 
 extern crate ogg;
-extern crate byteorder;
 
 use std::env;
 use ogg::{PacketReader, Packet};
