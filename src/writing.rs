@@ -112,7 +112,7 @@ impl <T :io::Write> PacketWriter<T> {
 			*/
 			absgp :u64) -> IoResult<()> {
 		let is_end_stream :bool = inf == PacketWriteEndInfo::EndStream;
-		let mut pg = self.page_vals.entry(serial).or_insert(
+		let pg = self.page_vals.entry(serial).or_insert(
 			CurrentPageValues {
 				first_page : true,
 				sequence_num : 0,

@@ -344,7 +344,7 @@ impl BasePacketReader {
 			return None;
 		}
 		let str_serial :u32 = self.stream_with_stuff.unwrap();
-		let mut pg_info = self.page_infos.get_mut(&str_serial).unwrap();
+		let pg_info = self.page_infos.get_mut(&str_serial).unwrap();
 		let (offs, len) = pg_info.bi.packet_positions[pg_info.packet_idx as usize];
 		// If there is a continued packet, and we are at the start right now,
 		// and we actually have its end in the current page, glue it together.
