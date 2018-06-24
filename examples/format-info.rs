@@ -21,8 +21,9 @@ fn main() {
 }
 
 fn dump_pck_info(p :&Packet) {
-	println!("Packet: serial 0x{:08x}, data {:08} large, last packet {: >5}, absgp 0x{:016x}",
-		p.stream_serial, p.data.len(), p.last_packet, p.absgp_page);
+	println!("Packet: serial 0x{:08x}, data {:08} large, first {: >5}, last {: >5}, absgp 0x{:016x}",
+		p.stream_serial, p.data.len(), p.first_packet, p.last_packet,
+		p.absgp_page);
 }
 
 fn run() -> Result<(), std::io::Error> {
