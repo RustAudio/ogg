@@ -282,7 +282,8 @@ impl PageParser {
 		hash_calculated = vorbis_crc32_update(hash_calculated, &packet_data);
 
 		// 3. Compare to the extracted one
-		if (! cfg!(fuzzing)) && self.checksum != hash_calculated {
+		if self.checksum != hash_calculated {
+			#[cfg(not(fuzzing))]
 			try!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
 		}
 		self.segments_or_packets_buf = packet_data;
