@@ -283,6 +283,10 @@ impl PageParser {
 
 		// 3. Compare to the extracted one
 		if self.checksum != hash_calculated {
+			// Do not verify checksum when the decoder is being fuzzed.
+			// This allows random input from fuzzers reach decoding code that's actually interesting,
+			// instead of being rejected early due to checksum mismatch.
+			#[cfg(not(fuzzing))]
 			try!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
 		}
 		self.segments_or_packets_buf = packet_data;
