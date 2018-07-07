@@ -121,8 +121,8 @@ impl PageInfo {
 	/// If the first "unread" packet isn't completed in this page
 	/// (spans page borders), this returns `false`.
 	fn is_last_pck_in_pg(&self) -> bool {
-		return ((self.packet_idx + 1 + (self.bi.ends_with_continued as u8)) as usize
-			== self.bi.packet_positions.len());
+		return (self.packet_idx + 1 + (self.bi.ends_with_continued as u8)) as usize
+			== self.bi.packet_positions.len();
 	}
 }
 
@@ -352,10 +352,10 @@ impl BasePacketReader {
 		let (offs, len) = pg_info.bi.packet_positions[pg_info.packet_idx as usize];
 		// If there is a continued packet, and we are at the start right now,
 		// and we actually have its end in the current page, glue it together.
-		let packet_content :Vec<u8> = if (
-				pg_info.packet_idx == 0 && pg_info.bi.starts_with_continued
-				&& !(pg_info.bi.ends_with_continued && pg_info.bi.packet_positions.len() == 1)
-		) {
+		let need_to_glue = pg_info.packet_idx == 0 &&
+				pg_info.bi.starts_with_continued &&
+				!(pg_info.bi.ends_with_continued && pg_info.bi.packet_positions.len() == 1);
+		let packet_content :Vec<u8> = if need_to_glue {
 			// First find out the size of our spanning packet
 			let mut siz :usize = 0;
 			for pck in pg_info.last_overlap_pck.iter() {
@@ -462,7 +462,7 @@ impl BasePacketReader {
 			},
 			Entry::Vacant(v) => {
 				if !self.has_seeked {
-					if (!pg_prs.bi.first_page || pg_prs.bi.starts_with_continued) {
+					if !pg_prs.bi.first_page || pg_prs.bi.starts_with_continued {
 						// If we haven't seeked, this is an error.
 						try!(Err(OggReadError::InvalidData));
 					}
