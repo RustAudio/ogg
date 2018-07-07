@@ -113,14 +113,14 @@ struct PageInfo {
 impl PageInfo {
 	/// Returns `true` if the first "unread" packet is the first one
 	/// in the page, `false` otherwise.
-	fn is_first_pck_in_pg(self :&PageInfo) -> bool {
+	fn is_first_pck_in_pg(&self) -> bool {
 		return self.packet_idx == 0;
 	}
 	/// Returns `true` if the first "unread" packet is the last one
 	/// in the page, `false` otherwise.
 	/// If the first "unread" packet isn't completed in this page
 	/// (spans page borders), this returns `false`.
-	fn is_last_pck_in_pg(self :&PageInfo) -> bool {
+	fn is_last_pck_in_pg(&self) -> bool {
 		return ((self.packet_idx + 1 + (self.bi.ends_with_continued as u8)) as usize
 			== self.bi.packet_positions.len());
 	}
