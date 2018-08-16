@@ -16,7 +16,7 @@ extern crate futures;
 use std::io;
 use ogg::{PacketWriter, PacketWriteEndInfo};
 use ogg::reading::async::PacketReader;
-use std::rc::Rc;
+use std::boxed::Box;
 use std::io::{Cursor, Seek, SeekFrom};
 use tokio_io::AsyncRead;
 use futures::Stream;
@@ -74,9 +74,9 @@ fn test_ogg_random_would_block_run() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -103,9 +103,9 @@ fn test_ogg_random_would_block_run() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr), 0xdeadb33f, np, 0).unwrap();
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -131,8 +131,8 @@ fn test_ogg_random_would_block_run() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Rc::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Rc::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
