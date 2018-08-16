@@ -15,7 +15,7 @@ extern crate futures;
 
 use std::io;
 use ogg::{PacketWriter, PacketWriteEndInfo};
-use ogg::reading::async::PacketReader;
+use ogg::reading::async_api::PacketReader;
 use std::boxed::Box;
 use std::io::{Cursor, Seek, SeekFrom};
 use tokio_io::AsyncRead;

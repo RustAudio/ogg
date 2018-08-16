@@ -1004,7 +1004,8 @@ fn seek_before_end<T :io::Read + io::Seek>(mut rdr :T,
 /**
 Asyncronous ogg decoding
 */
-pub mod async {
+pub mod async_api {
+	#![allow(deprecated)]
 
 	use super::*;
 	use tokio_io::AsyncRead;
