@@ -2,7 +2,7 @@
 
 An Ogg decoder and encoder. Implements the [xiph.org Ogg spec](https://www.xiph.org/vorbis/doc/framing.html) in pure Rust.
 
-[Documentation](https://docs.rs/ogg/0.5.1).
+[Documentation](https://docs.rs/ogg/0.6.0).
 
 If the `async` feature is disabled, Version 1.12.0 of Rust is the minimum supported one.
 
