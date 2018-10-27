@@ -989,6 +989,11 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			}
 		}
 	}
+	/// Resets the internal state by deleting all
+	/// unread packets.
+	pub fn delete_unread_packets(&mut self) {
+		self.base_pck_rdr.update_after_seek();
+	}
 }
 
 // util function
