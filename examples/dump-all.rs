@@ -48,8 +48,8 @@ fn print_u8_slice(arr :&[u8]) {
 
 fn dump_pck_info(p :&Packet, ctr :usize) {
 	println!("Packet: serial 0x{:08x}, data {:08} large, first {: >5}, last {: >5}, absgp 0x{:016x} nth {}",
-		p.stream_serial, p.data.len(), p.first_packet, p.last_packet,
-		p.absgp_page, ctr);
+		p.stream_serial(), p.data.len(), p.first_in_page(), p.last_in_page(),
+		p.absgp_page(), ctr);
 	print_u8_slice(&p.data);
 }
 

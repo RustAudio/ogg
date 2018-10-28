@@ -46,15 +46,19 @@ fn run() -> Result<(), std::io::Error> {
 		let r = btry!(pck_rdr.read_packet());
 		match r {
 			Some(pck) => {
-				let inf = if pck.last_packet {
-					PacketWriteEndInfo::NormalPacket
-				} else {
+				let inf = if pck.last_in_stream() {
 					PacketWriteEndInfo::EndStream
+				} else if pck.last_in_page() {
+					PacketWriteEndInfo::EndPage
+				} else {
+					PacketWriteEndInfo::NormalPacket
 				};
+				let stream_serial = pck.stream_serial();
+				let absgp_page = pck.absgp_page();
 				btry!(pck_wtr.write_packet(pck.data.into_boxed_slice(),
-					pck.stream_serial,
+					stream_serial,
 					inf,
-					pck.absgp_page));
+					absgp_page));
 			},
 			// End of stream
 			None => break,

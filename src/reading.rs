@@ -400,8 +400,10 @@ impl BasePacketReader {
 
 		return Some(Packet {
 			data: packet_content,
-			first_packet: first_pck_overall,
-			last_packet: last_pck_overall,
+			first_packet_pg: first_pck_in_pg,
+			first_packet_stream: first_pck_overall,
+			last_packet_pg: last_pck_in_pg,
+			last_packet_stream: last_pck_overall,
 			absgp_page: pg_info.bi.absgp,
 			stream_serial: str_serial,
 		});
