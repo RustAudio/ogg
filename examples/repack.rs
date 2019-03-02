@@ -40,6 +40,13 @@ fn run() -> Result<(), std::io::Error> {
 	let mut f_i = try!(File::open(input_path));
 	let mut f_o = try!(File::create(output_path));
 	let mut pck_rdr = PacketReader::new(&mut f_i);
+
+	// This call doesn't discard anything as nothing has
+	// been stored yet, but it does set bits that
+	// make reading logic a bit more tolerant towards
+	// errors.
+	pck_rdr.delete_unread_packets();
+
 	let mut pck_wtr = PacketWriter::new(&mut f_o);
 
 	loop {
