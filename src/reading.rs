@@ -1001,7 +1001,6 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 // util function
 fn seek_before_end<T :io::Read + io::Seek>(mut rdr :T,
 		offs :u64) -> Result<u64, OggReadError> {
-	use std::io::SeekFrom;
 	let end_pos = try!(rdr.seek(SeekFrom::End(0)));
 	let end_pos_to_seek = ::std::cmp::min(end_pos, offs);
 	return Ok(try!(rdr.seek(SeekFrom::End(-(end_pos_to_seek as i64)))));
