@@ -110,7 +110,7 @@ fn test_crc32() {
 	println!("");
 	println!("CRC of \"==!\" calculated as 0x{:08x} (expected 0x9f858776)", vorbis_crc32(&[61,61,33]));
 	println!("Test page CRC calculated as 0x{:08x} (expected 0x3d4e946d)", vorbis_crc32(test_arr));
-	assert!(vorbis_crc32(&[61,61,33]) == 0x9f858776);
-	assert!(vorbis_crc32(test_arr) == 0x3d4e946d);
-	assert!(vorbis_crc32(&test_arr[0 .. 27]) == 0x7b374db8);
+	assert_eq!(vorbis_crc32(&[61,61,33]), 0x9f858776);
+	assert_eq!(vorbis_crc32(test_arr), 0x3d4e946d);
+	assert_eq!(vorbis_crc32(&test_arr[0 .. 27]), 0x7b374db8);
 }
