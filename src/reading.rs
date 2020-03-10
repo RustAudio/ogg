@@ -929,6 +929,13 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		// Seek to the start of the file to get the starting boundary
 		try!(self.rdr.seek(SeekFrom::Start(0)));
 		let (mut begin_pos, mut begin_pg) = pg_read_match_serial!();
+
+		// If the goal is the beginning, we are done.
+		if pos_goal == 0 {
+			//println!("Seeking to the beginning of the stream - skipping bisect.");
+			found!(begin_pos);
+		}
+
 		// Seek to the end of the file to get the ending boundary
 		// TODO the 200 KB is just a guessed number, any ideas
 		// to improve it?
