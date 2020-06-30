@@ -80,6 +80,31 @@ static CRC_LOOKUP_ARRAY : &'static[u32] = &[
 	0xafb010b1, 0xab710d06, 0xa6322bdf, 0xa2f33668,
 	0xbcb4666d, 0xb8757bda, 0xb5365d03, 0xb1f740b4];
 
+/*
+// Const implementation: TODO adopt it once MSRV > 1.46
+static CRC_LOOKUP_ARRAY :&[u32] = &lookup_array();
+
+const fn get_tbl_elem(idx :u32) -> u32 {
+	let mut r :u32 = idx << 24;
+	let mut i = 0;
+	while i < 8 {
+		r = (r << 1) ^ (-(((r >> 31) & 1) as i32) as u32 & 0x04c11db7);
+		i += 1;
+	}
+	return r;
+}
+
+const fn lookup_array() -> [u32; 0x100] {
+	let mut lup_arr :[u32; 0x100] = [0; 0x100];
+	let mut i = 0;
+	while i < 0x100 {
+		lup_arr[i] = get_tbl_elem(i as u32);
+		i += 1;
+	}
+	lup_arr
+}
+*/
+
 #[cfg(test)]
 pub fn vorbis_crc32(array :&[u8]) -> u32 {
 	return vorbis_crc32_update(0, array);
