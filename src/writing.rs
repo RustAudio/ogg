@@ -150,7 +150,7 @@ impl <T :io::Write> PacketWriter<T> {
 					try!(PacketWriter::write_page(&mut self.wtr, serial, pg,
 						false));
 				} else {
-					// We have to write a page end, and its the very last
+					// We have to write a page end, and it's the very last
 					// we need to write
 					try!(PacketWriter::write_page(&mut self.wtr,
 						serial, pg, is_end_stream));
@@ -236,7 +236,7 @@ impl <T :io::Write> PacketWriter<T> {
 			// Go back to enter the checksum
 			// Don't do excessive checking here (that the seek
 			// succeeded & we are at the right pos now).
-			// Its hopefully not required.
+			// It's hopefully not required.
 			try!(hdr_cur.seek(SeekFrom::Start(22)));
 			try!(hdr_cur.write_u32::<LittleEndian>(hash_calculated));
 

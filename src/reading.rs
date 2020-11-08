@@ -70,7 +70,7 @@ impl From<io::Error> for OggReadError {
 
 /// Containing information about an OGG page that is shared between multiple places
 struct PageBaseInfo {
-	/// `true`: the first packet is continued from the page before. `false`: if its a "fresh" one
+	/// `true`: the first packet is continued from the page before. `false`: if it's a "fresh" one
 	starts_with_continued :bool,
 	/// `true` if this page is the first one in the logical bitstream
 	first_page :bool,
@@ -149,7 +149,7 @@ impl OggPage {
 /**
 Helper struct for parsing pages
 
-Its created using the `new` function and then its fed more data via the `parse_segments`
+It's created using the `new` function and then it's fed more data via the `parse_segments`
 and `parse_packet_data` functions, each called exactly once and in that precise order.
 
 Then later code uses the `OggPage` returned by the `parse_packet_data` function.
@@ -241,7 +241,7 @@ impl PageParser {
 		let mut cur_packet_offs :u16 = 0;
 
 		// Second run: get the offsets of the packets
-		// Not that we need it right now, but its much more fun this way, am I right
+		// Not that we need it right now, but it's much more fun this way, am I right
 		for val in &segments_buf {
 			cur_packet_siz += *val as u16;
 			if *val < 255 {
@@ -555,7 +555,7 @@ impl UntilPageHeaderReader {
 		}
 	}
 	/// Returns Some(off), where off is the offset of the last byte
-	/// of the capture pattern if its found, None if the capture pattern
+	/// of the capture pattern if it's found, None if the capture pattern
 	/// is not inside the passed slice.
 	///
 	/// Changes the capture pattern offset accordingly
@@ -607,7 +607,7 @@ impl UntilPageHeaderReader {
 				// There is most likely a corruption here.
 				// I'm not sure, but the ogg spec doesn't say that
 				// random data past the last ogg page is allowed,
-				// so we just assume its not allowed.
+				// so we just assume it's not allowed.
 				try!(Err(OggReadError::NoCapturePatternFound));
 			}
 		}
@@ -816,7 +816,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// at the last page that comes before such a page and has a packet start.
 	///
 	/// The passed `stream_serial` parameter controls the stream
-	/// serial number to filter our search for. If its `None`, no
+	/// serial number to filter our search for. If it's `None`, no
 	/// filtering is applied, but if it is `Some(n)`, we filter for
 	/// streams with the serial number `n`.
 	/// Note that the `None` case is only intended for streams
