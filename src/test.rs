@@ -455,3 +455,87 @@ fn test_seeking_continued() {
 	// before it again.
 	test_seek!(250,-,1);
 }
+
+
+// Regression test for issue 14:
+// Have "O" right before the OggS magic.
+#[test]
+fn test_issue_14() {
+	let mut c = Cursor::new(Vec::new());
+	let test_arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
+	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
+	{
+		use std::io::Write;
+		c.write_all(&[b'O']).unwrap();
+		let mut w = PacketWriter::new(&mut c);
+		let np = PacketWriteEndInfo::NormalPacket;
+		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+			PacketWriteEndInfo::EndPage, 2).unwrap();
+	}
+	//print_u8_slice(c.get_ref());
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+	{
+		let mut r = PacketReader::new(c);
+		let p1 = r.read_packet().unwrap().unwrap();
+		assert_eq!(test_arr, *p1.data);
+		let p2 = r.read_packet().unwrap().unwrap();
+		assert_eq!(test_arr_2, *p2.data);
+		let p3 = r.read_packet().unwrap().unwrap();
+		assert_eq!(test_arr_3, *p3.data);
+	}
+
+	// Now test packets spanning multiple segments
+	let mut c = Cursor::new(Vec::new());
+	let test_arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+	let mut test_arr_2 = [0; 700];
+	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
+	for (idx, a) in test_arr_2.iter_mut().enumerate() {
+		*a = (idx as u8) / 4;
+	}
+	{
+		let mut w = PacketWriter::new(&mut c);
+		let np = PacketWriteEndInfo::NormalPacket;
+		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+			PacketWriteEndInfo::EndPage, 2).unwrap();
+	}
+	//print_u8_slice(c.get_ref());
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+	{
+		let mut r = PacketReader::new(&mut c);
+		let p1 = r.read_packet().unwrap().unwrap();
+		assert_eq!(test_arr, *p1.data);
+		let p2 = r.read_packet().unwrap().unwrap();
+		test_arr_eq!(test_arr_2, *p2.data);
+		let p3 = r.read_packet().unwrap().unwrap();
+		assert_eq!(test_arr_3, *p3.data);
+	}
+
+	// Now test packets spanning multiple pages
+	let mut c = Cursor::new(Vec::new());
+	let mut test_arr_2 = [0; 14_000];
+	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
+	for (idx, a) in test_arr_2.iter_mut().enumerate() {
+		*a = (idx as u8) / 4;
+	}
+	{
+		let mut w = PacketWriter::new(&mut c);
+		let np = PacketWriteEndInfo::NormalPacket;
+		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+			PacketWriteEndInfo::EndPage, 2).unwrap();
+	}
+	//print_u8_slice(c.get_ref());
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+	{
+		let mut r = PacketReader::new(c);
+		let p2 = r.read_packet().unwrap().unwrap();
+		test_arr_eq!(test_arr_2, *p2.data);
+		let p3 = r.read_packet().unwrap().unwrap();
+		assert_eq!(test_arr_3, *p3.data);
+	}
+}
