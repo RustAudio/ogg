@@ -565,9 +565,9 @@ impl UntilPageHeaderReader {
 	fn check_arr(&mut self, arr :&[u8]) -> Option<usize> {
 		for (i, ch) in arr.iter().enumerate() {
 			match *ch {
-				0x4f /*'O'*/ => self.cpt_of = 1,
-				0x67 /*'g'*/ if self.cpt_of == 1 || self.cpt_of == 2 => self.cpt_of += 1,
-				0x53 /*'S'*/ if self.cpt_of == 3 => return Some(i),
+				b'O' => self.cpt_of = 1,
+				b'g' if self.cpt_of == 1 || self.cpt_of == 2 => self.cpt_of += 1,
+				b'S' if self.cpt_of == 3 => return Some(i),
 				_ => self.cpt_of = 0,
 			}
 		}
