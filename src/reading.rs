@@ -40,6 +40,17 @@ pub enum OggReadError {
 }
 
 impl error::Error for OggReadError {
+	fn description(&self) -> &str {
+		match self {
+			&OggReadError::NoCapturePatternFound => "No Ogg capture pattern found",
+			&OggReadError::InvalidStreamStructVer(_) =>
+				"A non zero stream structure version was passed",
+			&OggReadError::HashMismatch(_, _) => "CRC32 hash mismatch",
+			&OggReadError::ReadError(_) => "I/O error",
+			&OggReadError::InvalidData => "Constraint violated",
+		}
+	}
+
 	fn cause(&self) -> Option<&error::Error> {
 		match self {
 			&OggReadError::ReadError(ref err) => Some(err as &error::Error),
@@ -50,15 +61,7 @@ impl error::Error for OggReadError {
 
 impl Display for OggReadError {
 	fn fmt(&self, fmt :&mut Formatter) -> Result<(), FmtError> {
-		let description = match self {
-			&OggReadError::NoCapturePatternFound => "No Ogg capture pattern found",
-			&OggReadError::InvalidStreamStructVer(_) =>
-				"A non zero stream structure version was passed",
-			&OggReadError::HashMismatch(_, _) => "CRC32 hash mismatch",
-			&OggReadError::ReadError(_) => "I/O error",
-			&OggReadError::InvalidData => "Constraint violated",
-		};
-		write!(fmt, "{}", description)
+		write!(fmt, "{}", error::Error::description(self))
 	}
 }
 
