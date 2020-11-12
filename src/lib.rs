@@ -7,7 +7,6 @@
 // source distribution.
 
 #![forbid(unsafe_code)]
-#![cfg_attr(test, deny(warnings))]
 
 /*!
 Ogg container decoder and encoder
