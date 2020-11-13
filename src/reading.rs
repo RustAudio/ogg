@@ -634,10 +634,10 @@ impl UntilPageHeaderReader {
 			Searching => match self.check_arr(rd_buf) {
 				// Capture pattern found
 				Some(off) => {
-					self.ret_buf[0] = 0x4f; // 'O'
-					self.ret_buf[1] = 0x67; // 'g'
-					self.ret_buf[2] = 0x67; // 'g'
-					self.ret_buf[3] = 0x53; // 'S' (Not actually needed)
+					self.ret_buf[0] = b'O';
+					self.ret_buf[1] = b'g';
+					self.ret_buf[2] = b'g';
+					self.ret_buf[3] = b'S'; // (Not actually needed)
 					(off, 24)
 				},
 				// Nothing found
