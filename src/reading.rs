@@ -12,7 +12,7 @@ Reading logic
 
 use std::error;
 use std::io;
-use std::io::{Cursor, Read, Write, SeekFrom, Error, ErrorKind};
+use std::io::{Cursor, Write, SeekFrom, Error, ErrorKind};
 use byteorder::{ReadBytesExt, LittleEndian};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -20,7 +20,6 @@ use std::fmt::{Display, Formatter, Error as FmtError};
 use std::mem::replace;
 use crc::vorbis_crc32_update;
 use Packet;
-use std::io::Seek;
 
 /// Error that can be raised when decoding an Ogg transport.
 #[derive(Debug)]
@@ -59,7 +58,7 @@ impl error::Error for OggReadError {
 
 	fn cause(&self) -> Option<&dyn error::Error> {
 		match *self {
-			OggReadError::ReadError(ref err) => Some(err as &error::Error),
+			OggReadError::ReadError(ref err) => Some(err as &dyn error::Error),
 			_ => None
 		}
 	}
@@ -528,180 +527,6 @@ impl BasePacketReader {
 	}
 }
 
-#[derive(Clone, Copy)]
-enum UntilPageHeaderReaderMode {
-	Searching,
-	FoundWithNeeded(u8),
-	SeekNeeded(i32),
-	Found,
-}
-
-enum UntilPageHeaderResult {
-	Eof,
-	Found,
-	ReadNeeded,
-	SeekNeeded,
-}
-
-struct UntilPageHeaderReader {
-	mode :UntilPageHeaderReaderMode,
-	/// Capture pattern offset. Needed so that if we only partially
-	/// recognized the capture pattern, we later on only check the
-	/// remaining part.
-	cpt_of :u8,
-	/// The return buffer.
-	ret_buf :[u8; 27],
-	read_amount :usize,
-}
-
-impl UntilPageHeaderReader {
-	pub fn new() -> Self {
-		UntilPageHeaderReader {
-			mode : UntilPageHeaderReaderMode::Searching,
-			cpt_of : 0,
-			ret_buf : [0; 27],
-			read_amount : 0,
-		}
-	}
-	/// Returns Some(off), where off is the offset of the last byte
-	/// of the capture pattern if it's found, None if the capture pattern
-	/// is not inside the passed slice.
-	///
-	/// Changes the capture pattern offset accordingly
-	fn check_arr(&mut self, arr :&[u8]) -> Option<usize> {
-		for (i, ch) in arr.iter().enumerate() {
-			match *ch {
-				b'O' => self.cpt_of = 1,
-				b'g' if self.cpt_of == 1 || self.cpt_of == 2 => self.cpt_of += 1,
-				b'S' if self.cpt_of == 3 => return Some(i),
-				_ => self.cpt_of = 0,
-			}
-		}
-		return None;
-	}
-	/// Do one read exactly, and if it was successful,
-	/// return Ok(true) if the full header has been read and can be extracted with
-	///
-	/// or return Ok(false) if the
-	pub fn do_read<R :Read>(&mut self, mut rdr :R)
-			-> Result<UntilPageHeaderResult, OggReadError> {
-		use self::UntilPageHeaderReaderMode::*;
-		use self::UntilPageHeaderResult as Res;
-		// The array's size is freely choseable, but must be > 27,
-		// and must well fit into an i32 (needs to be stored in SeekNeeded)
-		let mut buf :[u8; 1024] = [0; 1024];
-
-		let rd_len = tri!(rdr.read(if self.read_amount < 27 {
-			// This is an optimisation for the most likely case:
-			// the next page directly follows the current read position.
-			// Then it would be a waste to read more than the needed amount.
-			&mut buf[0 .. 27 - self.read_amount]
-		} else {
-			match self.mode {
-				Searching => &mut buf,
-				FoundWithNeeded(amount) => &mut buf[0 .. amount as usize],
-				SeekNeeded(_) => return Ok(Res::SeekNeeded),
-				Found => return Ok(Res::Found),
-			}
-		}));
-
-		if rd_len == 0 {
-			// Reached EOF.
-			if self.read_amount == 0 {
-				// If we have read nothing yet, there is no data
-				// but ogg data, meaning the stream ends legally
-				// and without corruption.
-				return Ok(Res::Eof);
-			} else {
-				// There is most likely a corruption here.
-				// I'm not sure, but the ogg spec doesn't say that
-				// random data past the last ogg page is allowed,
-				// so we just assume it's not allowed.
-				tri!(Err(OggReadError::NoCapturePatternFound));
-			}
-		}
-		self.read_amount += rd_len;
-
-		// 150 kb gives us a bit of safety: we can survive
-		// up to one page with a corrupted capture pattern
-		// after having seeked right after a capture pattern
-		// of an earlier page.
-		let read_amount_max = 150 * 1024;
-		if self.read_amount > read_amount_max {
-			// Exhaustive searching for the capture pattern
-			// has returned no ogg capture pattern.
-			tri!(Err(OggReadError::NoCapturePatternFound));
-		}
-
-		let rd_buf = &buf[0 .. rd_len];
-
-		use std::cmp::min;
-		let (off, needed) = match self.mode {
-			Searching => match self.check_arr(rd_buf) {
-				// Capture pattern found
-				Some(off) => {
-					self.ret_buf[0] = b'O';
-					self.ret_buf[1] = b'g';
-					self.ret_buf[2] = b'g';
-					self.ret_buf[3] = b'S'; // (Not actually needed)
-					(off, 24)
-				},
-				// Nothing found
-				None => return Ok(Res::ReadNeeded),
-			},
-			FoundWithNeeded(needed) => {
-				(0, needed as usize)
-			},
-			_ => unimplemented!(),
-		};
-
-		let fnd_buf = &rd_buf[off..];
-
-		let copy_amount = min(needed, fnd_buf.len());
-		let start_fill = 27 - needed;
-		(&mut self.ret_buf[start_fill .. copy_amount + start_fill])
-				.copy_from_slice(&fnd_buf[0 .. copy_amount]);
-		if fnd_buf.len() == needed {
-			// Capture pattern found!
-			self.mode = Found;
-			return Ok(Res::Found);
-		} else if fnd_buf.len() < needed {
-			// We still have to read some content.
-			let needed_new = needed - copy_amount;
-			self.mode = FoundWithNeeded(needed_new as u8);
-			return Ok(Res::ReadNeeded);
-		} else {
-			// We have read too much content (exceeding the header).
-			// Seek back so that we are at the position
-			// right after the header.
-
-			self.mode = SeekNeeded(needed as i32 - fnd_buf.len() as i32);
-			return Ok(Res::SeekNeeded);
-		}
-	}
-	pub fn do_seek<S :Seek>(&mut self, mut skr :S)
-			-> Result<UntilPageHeaderResult, OggReadError> {
-		use self::UntilPageHeaderReaderMode::*;
-		use self::UntilPageHeaderResult as Res;
-		match self.mode {
-			Searching | FoundWithNeeded(_) => Ok(Res::ReadNeeded),
-			SeekNeeded(offs) => {
-				tri!(skr.seek(SeekFrom::Current(offs as i64)));
-				self.mode = Found;
-				Ok(Res::Found)
-			},
-			Found => Ok(Res::Found),
-		}
-	}
-	pub fn into_header(self) -> [u8; 27] {
-		use self::UntilPageHeaderReaderMode::*;
-		match self.mode {
-			Found => self.ret_buf,
-			_ => panic!("wrong mode"),
-		}
-	}
-}
-
 /**
 Reader for packets from an Ogg stream.
 
@@ -767,18 +592,18 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// Ok(None) is returned if the stream has ended without an uncompleted page
 	/// or non page data after the last page (if any) present.
 	fn read_until_pg_header(&mut self) -> Result<Option<[u8; 27]>, OggReadError> {
-		let mut r = UntilPageHeaderReader::new();
-		use self::UntilPageHeaderResult::*;
-		let mut res = tri!(r.do_read(&mut self.rdr));
-		loop {
-			res = match res {
-				Eof => return Ok(None),
-				Found => break,
-				ReadNeeded => tri!(r.do_read(&mut self.rdr)),
-				SeekNeeded => tri!(r.do_seek(&mut self.rdr))
+		let mut ret = [0u8; 27];
+		ret[..4].copy_from_slice(b"OggS");
+		let mut len = 0;
+		while len < 4 {
+			match (tri!(self.rdr.read_u8()), len) {
+				(b'O', _) => len = 1,
+				(b'g', 1) | (b'g', 2) | (b'S', 3) => len += 1,
+				_ => len = 0,
 			}
 		}
-		Ok(Some(r.into_header()))
+		tri!(self.rdr.read_exact(&mut ret[4..27]));
+		Ok(Some(ret))
 	}
 
 	/// Parses and reads a new OGG page
