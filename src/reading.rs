@@ -537,13 +537,13 @@ consistent when it encounters the `WouldBlock` error kind.
 If you desire async functionality, consider enabling the `async` feature
 and look into the async module.
 */
-pub struct PacketReader<T :io::Read + io::Seek> {
+pub struct PacketReader<T :io::Read> {
 	rdr :T,
 
 	base_pck_rdr :BasePacketReader,
 }
 
-impl<T :io::Read + io::Seek> PacketReader<T> {
+impl<T :io::Read> PacketReader<T> {
 	/// Constructs a new `PacketReader` with a given `Read`.
 	pub fn new(rdr :T) -> PacketReader<T> {
 		PacketReader { rdr, base_pck_rdr : BasePacketReader::new() }
@@ -628,7 +628,9 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 
 		Ok(Some(tri!(pg_prs.parse_packet_data(packet_data))))
 	}
+}
 
+impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// Seeks the underlying reader
 	///
 	/// Seeks the reader that this PacketReader bases on by the specified
