@@ -4,7 +4,7 @@ An Ogg decoder and encoder. Implements the [xiph.org Ogg spec](https://www.xiph.
 
 [Documentation](https://docs.rs/ogg/0.7.1).
 
-If the `async` feature is disabled, Version 1.12.0 of Rust is the minimum supported one.
+If the `async` feature is disabled, Version 1.27.0 of Rust is the minimum supported one.
 
 Note: `.ogg` files are vorbis encoded audio files embedded into an Ogg transport stream.
 There is no extra support for vorbis codec decoding or encoding in this crate,
