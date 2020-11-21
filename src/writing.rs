@@ -147,12 +147,12 @@ impl <T :io::Write> PacketWriter<T> {
 				if segment_i + 1 < needed_segments {
 					// We have to flush a page, but we know there are more to come...
 					pg.pck_this_overflow_idx = Some((segment_i + 1) * 255);
-					try!(PacketWriter::write_page(&mut self.wtr, serial, pg,
+					tri!(PacketWriter::write_page(&mut self.wtr, serial, pg,
 						false));
 				} else {
 					// We have to write a page end, and it's the very last
 					// we need to write
-					try!(PacketWriter::write_page(&mut self.wtr,
+					tri!(PacketWriter::write_page(&mut self.wtr,
 						serial, pg, is_end_stream));
 					// Not actually required
 					// (it is always None except if we set it to Some directly
@@ -166,7 +166,7 @@ impl <T :io::Write> PacketWriter<T> {
 		}
 		if (inf != PacketWriteEndInfo::NormalPacket) && !at_page_end {
 			// Write a page end
-			try!(PacketWriter::write_page(&mut self.wtr, serial, pg,
+			tri!(PacketWriter::write_page(&mut self.wtr, serial, pg,
 				is_end_stream));
 
 			pg.pck_last_overflow_idx = None;
@@ -183,13 +183,13 @@ impl <T :io::Write> PacketWriter<T> {
 		{
 			// The page header with everything but the lacing values:
 			let mut hdr_cur = Cursor::new(Vec::with_capacity(27));
-			try!(hdr_cur.write_all(&[0x4f, 0x67, 0x67, 0x53, 0x00]));
+			tri!(hdr_cur.write_all(&[0x4f, 0x67, 0x67, 0x53, 0x00]));
 			let mut flags :u8 = 0;
 			if pg.pck_last_overflow_idx.is_some() { flags |= 0x01; }
 			if pg.first_page { flags |= 0x02; }
 			if last_page { flags |= 0x04; }
 
-			try!(hdr_cur.write_u8(flags));
+			tri!(hdr_cur.write_u8(flags));
 
 			let pck_data = &pg.cur_pg_data;
 
@@ -201,14 +201,14 @@ impl <T :io::Write> PacketWriter<T> {
 				}
 			}
 
-			try!(hdr_cur.write_u64::<LittleEndian>(last_finishing_pck_absgp));
-			try!(hdr_cur.write_u32::<LittleEndian>(serial));
-			try!(hdr_cur.write_u32::<LittleEndian>(pg.sequence_num));
+			tri!(hdr_cur.write_u64::<LittleEndian>(last_finishing_pck_absgp));
+			tri!(hdr_cur.write_u32::<LittleEndian>(serial));
+			tri!(hdr_cur.write_u32::<LittleEndian>(pg.sequence_num));
 
 			// checksum, calculated later on :)
-			try!(hdr_cur.write_u32::<LittleEndian>(0));
+			tri!(hdr_cur.write_u32::<LittleEndian>(0));
 
-			try!(hdr_cur.write_u8(pg.segment_cnt));
+			tri!(hdr_cur.write_u8(pg.segment_cnt));
 
 			let mut hash_calculated :u32;
 
@@ -237,12 +237,12 @@ impl <T :io::Write> PacketWriter<T> {
 			// Don't do excessive checking here (that the seek
 			// succeeded & we are at the right pos now).
 			// It's hopefully not required.
-			try!(hdr_cur.seek(SeekFrom::Start(22)));
-			try!(hdr_cur.write_u32::<LittleEndian>(hash_calculated));
+			tri!(hdr_cur.seek(SeekFrom::Start(22)));
+			tri!(hdr_cur.write_u32::<LittleEndian>(hash_calculated));
 
 			// Now all is done, write the stuff!
-			try!(wtr.write_all(hdr_cur.get_ref()));
-			try!(wtr.write_all(pg_lacing));
+			tri!(wtr.write_all(hdr_cur.get_ref()));
+			tri!(wtr.write_all(pg_lacing));
 			for (idx, &(ref pck, _)) in pck_data.iter().enumerate() {
 				let mut start :usize = 0;
 				if idx == 0 { if let Some(idx) = pg.pck_last_overflow_idx {
@@ -254,7 +254,7 @@ impl <T :io::Write> PacketWriter<T> {
 						end = idx;
 					}
 				}
-				try!(wtr.write_all(&pck[start .. end]));
+				tri!(wtr.write_all(&pck[start .. end]));
 			}
 		}
 
