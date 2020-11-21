@@ -39,21 +39,27 @@ pub enum OggReadError {
 	InvalidData,
 }
 
+impl OggReadError {
+	fn description_str(&self) -> &str {
+		match *self {
+			OggReadError::NoCapturePatternFound => "No Ogg capture pattern found",
+			OggReadError::InvalidStreamStructVer(_) =>
+				"A non zero stream structure version was passed",
+			OggReadError::HashMismatch(_, _) => "CRC32 hash mismatch",
+			OggReadError::ReadError(_) => "I/O error",
+			OggReadError::InvalidData => "Constraint violated",
+		}
+	}
+}
+
 impl error::Error for OggReadError {
 	fn description(&self) -> &str {
-		match self {
-			&OggReadError::NoCapturePatternFound => "No Ogg capture pattern found",
-			&OggReadError::InvalidStreamStructVer(_) =>
-				"A non zero stream structure version was passed",
-			&OggReadError::HashMismatch(_, _) => "CRC32 hash mismatch",
-			&OggReadError::ReadError(_) => "I/O error",
-			&OggReadError::InvalidData => "Constraint violated",
-		}
+		self.description_str()
 	}
 
 	fn cause(&self) -> Option<&dyn error::Error> {
-		match self {
-			&OggReadError::ReadError(ref err) => Some(err as &dyn error::Error),
+		match *self {
+			OggReadError::ReadError(ref err) => Some(err as &error::Error),
 			_ => None
 		}
 	}
@@ -61,7 +67,7 @@ impl error::Error for OggReadError {
 
 impl Display for OggReadError {
 	fn fmt(&self, fmt :&mut Formatter) -> Result<(), FmtError> {
-		write!(fmt, "{}", error::Error::description(self))
+		write!(fmt, "{}", Self::description_str(self))
 	}
 }
 
@@ -187,9 +193,9 @@ impl PageParser {
 	pub fn new(header_buf :[u8; 27]) -> Result<(PageParser, usize), OggReadError> {
 		let mut header_rdr = Cursor::new(header_buf);
 		header_rdr.set_position(4);
-		let stream_structure_version = try!(header_rdr.read_u8());
+		let stream_structure_version = tri!(header_rdr.read_u8());
 		if stream_structure_version != 0 {
-			try!(Err(OggReadError::InvalidStreamStructVer(stream_structure_version)));
+			tri!(Err(OggReadError::InvalidStreamStructVer(stream_structure_version)));
 		}
 		let header_type_flag = header_rdr.read_u8().unwrap();
 		let stream_serial;
@@ -287,7 +293,7 @@ impl PageParser {
 			// This allows random input from fuzzers reach decoding code that's actually interesting,
 			// instead of being rejected early due to checksum mismatch.
 			if !cfg!(fuzzing) {
-				try!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
+				tri!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
 			}
 		}
 		self.segments_or_packets_buf = packet_data;
@@ -421,11 +427,11 @@ impl BasePacketReader {
 			Entry::Occupied(mut o) => {
 				let inf = o.get_mut();
 				if pg_prs.bi.first_page {
-					try!(Err(OggReadError::InvalidData));
+					tri!(Err(OggReadError::InvalidData));
 				}
 				if pg_prs.bi.starts_with_continued != inf.bi.ends_with_continued {
 					if !self.has_seeked {
-						try!(Err(OggReadError::InvalidData));
+						tri!(Err(OggReadError::InvalidData));
 					} else {
 						// If we have seeked, we are more tolerant here,
 						// and just drop the continued packet's content.
@@ -467,7 +473,7 @@ impl BasePacketReader {
 				if !self.has_seeked {
 					if !pg_prs.bi.first_page || pg_prs.bi.starts_with_continued {
 						// If we haven't seeked, this is an error.
-						try!(Err(OggReadError::InvalidData));
+						tri!(Err(OggReadError::InvalidData));
 					}
 				} else {
 					if !pg_prs.bi.first_page {
@@ -585,7 +591,7 @@ impl UntilPageHeaderReader {
 		// and must well fit into an i32 (needs to be stored in SeekNeeded)
 		let mut buf :[u8; 1024] = [0; 1024];
 
-		let rd_len = try!(rdr.read(if self.read_amount < 27 {
+		let rd_len = tri!(rdr.read(if self.read_amount < 27 {
 			// This is an optimisation for the most likely case:
 			// the next page directly follows the current read position.
 			// Then it would be a waste to read more than the needed amount.
@@ -611,7 +617,7 @@ impl UntilPageHeaderReader {
 				// I'm not sure, but the ogg spec doesn't say that
 				// random data past the last ogg page is allowed,
 				// so we just assume it's not allowed.
-				try!(Err(OggReadError::NoCapturePatternFound));
+				tri!(Err(OggReadError::NoCapturePatternFound));
 			}
 		}
 		self.read_amount += rd_len;
@@ -624,13 +630,13 @@ impl UntilPageHeaderReader {
 		if self.read_amount > read_amount_max {
 			// Exhaustive searching for the capture pattern
 			// has returned no ogg capture pattern.
-			try!(Err(OggReadError::NoCapturePatternFound));
+			tri!(Err(OggReadError::NoCapturePatternFound));
 		}
 
 		let rd_buf = &buf[0 .. rd_len];
 
 		use std::cmp::min;
-		let (off, needed) = match self.mode.clone() {
+		let (off, needed) = match self.mode {
 			Searching => match self.check_arr(rd_buf) {
 				// Capture pattern found
 				Some(off) => {
@@ -677,10 +683,10 @@ impl UntilPageHeaderReader {
 			-> Result<UntilPageHeaderResult, OggReadError> {
 		use self::UntilPageHeaderReaderMode::*;
 		use self::UntilPageHeaderResult as Res;
-		match self.mode.clone() {
+		match self.mode {
 			Searching | FoundWithNeeded(_) => Ok(Res::ReadNeeded),
 			SeekNeeded(offs) => {
-				try!(skr.seek(SeekFrom::Current(offs as i64)));
+				tri!(skr.seek(SeekFrom::Current(offs as i64)));
 				self.mode = Found;
 				Ok(Res::Found)
 			},
@@ -732,9 +738,9 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			if let Some(pck) = self.base_pck_rdr.read_packet() {
 				return Ok(Some(pck));
 			}
-			let page = try!(self.read_ogg_page());
+			let page = tri!(self.read_ogg_page());
 			match page {
-				Some(page) => try!(self.base_pck_rdr.push_page(page)),
+				Some(page) => tri!(self.base_pck_rdr.push_page(page)),
 				None => return Ok(None),
 			}
 		}
@@ -745,9 +751,9 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// returns an Err(_) if the physical stream has ended.
 	/// This function is useful if you expect a new packet to come.
 	pub fn read_packet_expected(&mut self) -> Result<Packet, OggReadError> {
-		match try!(self.read_packet()) {
+		match tri!(self.read_packet()) {
 			Some(p) => Ok(p),
-			None => try!(Err(Error::new(ErrorKind::UnexpectedEof,
+			None => tri!(Err(Error::new(ErrorKind::UnexpectedEof,
 				"Expected ogg packet but found end of physical stream"))),
 		}
 	}
@@ -763,13 +769,13 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	fn read_until_pg_header(&mut self) -> Result<Option<[u8; 27]>, OggReadError> {
 		let mut r = UntilPageHeaderReader::new();
 		use self::UntilPageHeaderResult::*;
-		let mut res = try!(r.do_read(&mut self.rdr));
+		let mut res = tri!(r.do_read(&mut self.rdr));
 		loop {
 			res = match res {
 				Eof => return Ok(None),
 				Found => break,
-				ReadNeeded => try!(r.do_read(&mut self.rdr)),
-				SeekNeeded => try!(r.do_seek(&mut self.rdr))
+				ReadNeeded => tri!(r.do_read(&mut self.rdr)),
+				SeekNeeded => tri!(r.do_seek(&mut self.rdr))
 			}
 		}
 		Ok(Some(r.into_header()))
@@ -781,21 +787,21 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// is at the current reader position.
 	/// Instead it searches until it finds the capture pattern.
 	fn read_ogg_page(&mut self) -> Result<Option<OggPage>, OggReadError> {
-		let header_buf :[u8; 27] = match try!(self.read_until_pg_header()) {
+		let header_buf :[u8; 27] = match tri!(self.read_until_pg_header()) {
 			Some(s) => s,
 			None => return Ok(None)
 		};
-		let (mut pg_prs, page_segments) = try!(PageParser::new(header_buf));
+		let (mut pg_prs, page_segments) = tri!(PageParser::new(header_buf));
 
 		let mut segments_buf = vec![0; page_segments]; // TODO fix this, we initialize memory for NOTHING!!! Out of some reason, this is seen as "unsafe" by rustc.
-		try!(self.rdr.read_exact(&mut segments_buf));
+		tri!(self.rdr.read_exact(&mut segments_buf));
 
 		let page_siz = pg_prs.parse_segments(segments_buf);
 
 		let mut packet_data = vec![0; page_siz as usize];
-		try!(self.rdr.read_exact(&mut packet_data));
+		tri!(self.rdr.read_exact(&mut packet_data));
 
-		Ok(Some(try!(pg_prs.parse_packet_data(packet_data))))
+		Ok(Some(tri!(pg_prs.parse_packet_data(packet_data))))
 	}
 
 	/// Seeks the underlying reader
@@ -805,7 +811,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	///
 	/// This also flushes all the unread packets in the queue.
 	pub fn seek_bytes(&mut self, pos :SeekFrom) -> Result<u64, Error> {
-		let r = try!(self.rdr.seek(pos));
+		let r = tri!(self.rdr.seek(pos));
 		// Reset the internal state
 		self.base_pck_rdr.update_after_seek();
 		return Ok(r);
@@ -832,14 +838,14 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		macro_rules! found {
 			($pos:expr) => {{
 				// println!("found: {}", $pos);
-				try!(self.rdr.seek(SeekFrom::Start($pos)));
+				tri!(self.rdr.seek(SeekFrom::Start($pos)));
 				self.base_pck_rdr.update_after_seek();
 				return Ok(true);
 			}};
 		}
 		macro_rules! bt {
 			($e:expr) => {{
-				match try!($e) {
+				match tri!($e) {
 					Some(s) => s,
 					None => return Ok(false),
 				}
@@ -885,7 +891,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				let mut pg;
 				let mut continued_pck_start = None;
 				loop {
-					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
+					pos = tri!(self.rdr.seek(SeekFrom::Current(0)));
 					pg = bt!(self.read_ogg_page());
 					/*println!("absgp {} serial {} wh {} pe {} @ {}",
 						pg.0.bi.absgp, pg.0.bi.sequence_num,
@@ -927,7 +933,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 
 		// First, find initial "boundaries"
 		// Seek to the start of the file to get the starting boundary
-		try!(self.rdr.seek(SeekFrom::Start(0)));
+		tri!(self.rdr.seek(SeekFrom::Start(0)));
 		let (mut begin_pos, mut begin_pg) = pg_read_match_serial!();
 
 		// If the goal is the beginning, we are done.
@@ -939,7 +945,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		// Seek to the end of the file to get the ending boundary
 		// TODO the 200 KB is just a guessed number, any ideas
 		// to improve it?
-		try!(seek_before_end(&mut self.rdr, 200 * 1024));
+		tri!(seek_before_end(&mut self.rdr, 200 * 1024));
 		let (mut end_pos, mut end_pg) = pg_read_until_end_or_goal!(pos_goal);
 
 		// Then perform the bisection
@@ -951,7 +957,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			}
 			// Perform the bisection step
 			let pos_to_seek = begin_pos + (end_pos - begin_pos) / 2;
-			try!(self.rdr.seek(SeekFrom::Start(pos_to_seek)));
+			tri!(self.rdr.seek(SeekFrom::Start(pos_to_seek)));
 			let (pos, pg) = pg_read_match_serial!();
 			/*println!("seek {} {} . {} @ {} {} . {}",
 				ab_of(&begin_pg), ab_of(&end_pg), ab_of(&pg),
@@ -965,9 +971,9 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				let mut pos;
 				let mut pg;
 				let mut last_packet_end_pos = begin_pos;
-				try!(self.rdr.seek(SeekFrom::Start(begin_pos)));
+				tri!(self.rdr.seek(SeekFrom::Start(begin_pos)));
 				loop {
-					pos = try!(self.rdr.seek(SeekFrom::Current(0)));
+					pos = tri!(self.rdr.seek(SeekFrom::Current(0)));
 					pg = bt!(self.read_ogg_page());
 					/*println!("absgp {} pck_start {} whole_pck {} pck_end {} @ {} {}",
 						ab_of(&pg), pg.has_packet_start(), pg.has_whole_packet(),
@@ -1008,9 +1014,9 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 // util function
 fn seek_before_end<T :io::Read + io::Seek>(mut rdr :T,
 		offs :u64) -> Result<u64, OggReadError> {
-	let end_pos = try!(rdr.seek(SeekFrom::End(0)));
+	let end_pos = tri!(rdr.seek(SeekFrom::End(0)));
 	let end_pos_to_seek = ::std::cmp::min(end_pos, offs);
-	return Ok(try!(rdr.seek(SeekFrom::End(-(end_pos_to_seek as i64)))));
+	return Ok(tri!(rdr.seek(SeekFrom::End(-(end_pos_to_seek as i64)))));
 }
 
 #[cfg(feature = "async")]
@@ -1081,7 +1087,7 @@ pub mod async_api {
 						// TODO once we have const generics, the copy below can be done
 						// much nicer, maybe with a new into_array fn on Vec's
 						hdr_buf.copy_from_slice(&consumed_buf);
-						let tup = try!(PageParser::new(hdr_buf));
+						let tup = tri!(PageParser::new(hdr_buf));
 						Segments(tup.0, tup.1)
 					},
 					Segments(mut pg_prs, _) => {
@@ -1089,7 +1095,7 @@ pub mod async_api {
 						PacketData(pg_prs, new_needed_len)
 					},
 					PacketData(pg_prs, _) => {
-						ret = Some(try!(pg_prs.parse_packet_data(consumed_buf)));
+						ret = Some(tri!(pg_prs.parse_packet_data(consumed_buf)));
 						Head
 					},
 					InUpdate => panic!("invalid state"),
@@ -1138,7 +1144,7 @@ pub mod async_api {
 				}
 				let page = try_ready!(self.pg_rd.poll());
 				match page {
-					Some(page) => try!(self.base_pck_rdr.push_page(page)),
+					Some(page) => tri!(self.base_pck_rdr.push_page(page)),
 					None => return Ok(Async::Ready(None)),
 				}
 			}

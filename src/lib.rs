@@ -27,6 +27,15 @@ extern crate bytes;
 #[cfg(test)]
 mod test;
 
+macro_rules! tri {
+	($e:expr) => {
+		match $e {
+			Ok(val) => val,
+			Err(err) => return Err(err.into()),
+		}
+	};
+}
+
 mod crc;
 pub mod reading;
 pub mod writing;
