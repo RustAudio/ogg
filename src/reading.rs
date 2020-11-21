@@ -536,6 +536,9 @@ This reader is not async ready. It does not keep its internal state
 consistent when it encounters the `WouldBlock` error kind.
 If you desire async functionality, consider enabling the `async` feature
 and look into the async module.
+
+The reader passed to this packet reader should be buffered properly,
+since `Read::read` will be called many times.
 */
 pub struct PacketReader<T :io::Read> {
 	rdr :T,
