@@ -28,7 +28,7 @@ fn print_crc32_table() {
 
 fn print_slice(name :&str, arr :&[u32]) {
 	assert!(arr.len() > 4);
-	println!("static {} : &'static[u32] = &[", name);
+	println!("static {} : &[u32] = &[", name);
 	let mut i :usize = 0;
 	while i * 4 < arr.len() - 4 {
 		println!("\t0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x},",
