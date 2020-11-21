@@ -92,7 +92,7 @@ pub enum PacketWriteEndInfo {
 impl <T :io::Write> PacketWriter<T> {
 	pub fn new(wtr :T) -> Self {
 		return PacketWriter {
-			wtr : wtr,
+			wtr,
 			page_vals : HashMap::new(),
 		};
 	}
