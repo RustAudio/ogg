@@ -623,15 +623,15 @@ impl<T :io::Read> PacketReader<T> {
 			};
 			finder.feed(next);
 		}
-		let mut target = &mut ret[4..];
+		let mut pos = 4;
 		loop {
-			let read = tri!(self.rdr.read(target));
+			let read = tri!(self.rdr.read(&mut ret[pos..]));
 			if read == 0 {
 				break;
 			}
-			target = &mut target[read..];
+			pos += read;
 		}
-		if target.is_empty() {
+		if pos == ret.len() {
 			Ok(Some(ret))
 		} else {
 			Ok(None)
