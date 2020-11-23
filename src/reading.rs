@@ -20,6 +20,7 @@ use std::fmt::{Display, Formatter, Error as FmtError};
 use std::mem::replace;
 use crc::vorbis_crc32_update;
 use Packet;
+use std::io::Read;
 
 /// Error that can be raised when decoding an Ogg transport.
 #[derive(Debug)]
@@ -527,6 +528,23 @@ impl BasePacketReader {
 	}
 }
 
+#[derive(Default)]
+struct MagicFinder {
+	len: usize,
+}
+impl MagicFinder {
+	fn feed(&mut self, b: u8){
+		match (b, self.len) {
+			(b'O', _) => self.len = 1,
+			(b'g', 1..=2) | (b'S', 3) => self.len += 1,
+			_ => self.len = 0,
+		}
+	}
+	fn found(&self) -> bool {
+		self.len == 4
+	}
+}
+
 /**
 Reader for packets from an Ogg stream.
 
@@ -597,16 +615,27 @@ impl<T :io::Read> PacketReader<T> {
 	fn read_until_pg_header(&mut self) -> Result<Option<[u8; 27]>, OggReadError> {
 		let mut ret = [0u8; 27];
 		ret[..4].copy_from_slice(b"OggS");
-		let mut len = 0;
-		while len < 4 {
-			match (tri!(self.rdr.read_u8()), len) {
-				(b'O', _) => len = 1,
-				(b'g', 1) | (b'g', 2) | (b'S', 3) => len += 1,
-				_ => len = 0,
-			}
+		let mut finder = MagicFinder::default();
+		while !finder.found() {
+			let next = match self.rdr.by_ref().bytes().next() {
+				Some(b) => tri!(b),
+				None => return Ok(None),
+			};
+			finder.feed(next);
 		}
-		tri!(self.rdr.read_exact(&mut ret[4..27]));
-		Ok(Some(ret))
+		let mut target = &mut ret[4..];
+		loop {
+			let read = tri!(self.rdr.read(target));
+			if read == 0 {
+				break;
+			}
+			target = &mut target[read..];
+		}
+		if target.is_empty() {
+			Ok(Some(ret))
+		} else {
+			Ok(None)
+		}
 	}
 
 	/// Parses and reads a new OGG page
