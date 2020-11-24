@@ -18,9 +18,11 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::{Display, Formatter, Error as FmtError};
 use std::mem::replace;
-use crc::vorbis_crc32_update;
+use crc::{vorbis_crc32_update, Crc32};
 use Packet;
 use std::io::Read;
+use std::cmp::Reverse;
+use std::collections::{VecDeque, binary_heap::{BinaryHeap, PeekMut}, BTreeSet};
 
 /// Error that can be raised when decoding an Ogg transport.
 #[derive(Debug)]
@@ -543,6 +545,84 @@ impl MagicFinder {
 	fn found(&self) -> bool {
 		self.len == 4
 	}
+	fn match_len(&self) -> usize {
+		self.len
+	}
+}
+
+
+pub fn find_next_page<R: Read>(reader: &mut R) -> Result<Option<(usize, usize)>, OggReadError> {
+	let capacity = 26 + 255 + 255 * 255;
+
+	let mut bytes_buffer = VecDeque::with_capacity(capacity);
+	let mut cumulative_sums = VecDeque::with_capacity(capacity);
+	cumulative_sums.push_back(0usize);
+	let mut cumulative_crcs = VecDeque::with_capacity(capacity);
+	cumulative_crcs.push_back(Crc32(0));
+
+	let mut magic_finder = MagicFinder::default();
+	let mut page_begin_queue = BTreeSet::new();
+	let mut page_segments_queue = VecDeque::new();
+	let mut segment_table_end_queue = BinaryHeap::new();
+	let mut page_end_queue = BinaryHeap::new();
+	for (i, b) in reader.bytes().enumerate() {
+		let b = tri!(b);
+		bytes_buffer.push_back(b);
+		let sum_next = cumulative_sums.front().unwrap().wrapping_add(b as usize);
+		cumulative_sums.push_front(sum_next);
+		let crc_next = cumulative_crcs.front().unwrap().push(b);
+		cumulative_crcs.push_front(crc_next);
+
+		let i = i + 1;
+
+		magic_finder.feed(b);
+		if magic_finder.found() {
+			let begin = i.checked_sub(4).expect("at least four bytes are read after magic is found");
+			page_begin_queue.insert(begin);
+			page_segments_queue.push_back((begin + 27, begin));
+		}
+
+		if page_segments_queue.front().map_or(false, |t| t.0 == i) {
+			let begin = page_segments_queue.pop_front().expect("an element always exists").1;
+			let table_len = b as usize;
+			segment_table_end_queue.push(Reverse((i + table_len, table_len, begin)));
+		}
+
+		while let Some(peek) = segment_table_end_queue.peek_mut().filter(|t| (t.0).0 == i) {
+			let (_, table_len, page_begin) = PeekMut::pop(peek).0;
+			let page_content_len = cumulative_sums[0].wrapping_sub(cumulative_sums[table_len]);
+			page_end_queue.push(Reverse((i + page_content_len, page_begin)));
+		}
+
+		while let Some(peek) = page_end_queue.peek_mut().filter(|t| (t.0).0 == i) {
+			let (_, page_begin) = PeekMut::pop(peek).0;
+			let page_len = i - page_begin;
+			// a = 2^(8 * (page_len - 26))
+			// b = 2^(8 * (page_len - 22))
+			// c = 2^(8 * page_len)
+			let a = Crc32::x_8n(page_len - 26);
+			let b = a.mul_x8n(4);
+			let c = b.mul_x8n(22);  // TODO: Which is faster, pushing 22 times or multiplying at once?
+			let crc_calculated = cumulative_crcs[0]
+				+ cumulative_crcs[page_len - 26] * a
+				+ cumulative_crcs[page_len - 22] * b
+				+ cumulative_crcs[page_len] * c;
+			let crc_input = bytes_buffer.iter().skip(bytes_buffer.len() - page_len + 22).take(4);
+			if crc_calculated.0.to_le_bytes().iter().zip(crc_input).all(|(x, y)| x == y) {
+				return Ok(Some((page_begin, page_len)));
+			}
+			assert!(page_begin_queue.remove(&page_begin));
+			return Ok(None);
+		}
+
+		let buffer_begin = i - bytes_buffer.len();
+		let drain_end = page_begin_queue.iter().next().copied().unwrap_or(i - magic_finder.match_len());
+		bytes_buffer.drain(..drain_end - buffer_begin);
+		let retain_len = i - drain_end;
+		cumulative_sums.drain(retain_len + 1..);
+		cumulative_crcs.drain(retain_len + 1..);
+	}
+	Ok(None)
 }
 
 /**
