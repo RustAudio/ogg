@@ -23,6 +23,8 @@ use Packet;
 use std::io::Read;
 use std::cmp::Reverse;
 use std::collections::{VecDeque, binary_heap::{BinaryHeap, PeekMut}, BTreeSet};
+#[allow(unused_imports)]
+use backports::{Option_v1_35, u32_v1_32};
 
 /// Error that can be raised when decoding an Ogg transport.
 #[derive(Debug)]
@@ -568,8 +570,10 @@ pub fn find_next_page<R: Read>(reader: &mut R) -> Result<Option<(usize, usize)>,
 	for (i, b) in reader.bytes().enumerate() {
 		let b = tri!(b);
 		bytes_buffer.push_back(b);
+		// TODO the following two lines can be written at once in the newer compiler
 		let sum_next = cumulative_sums.front().unwrap().wrapping_add(b as usize);
 		cumulative_sums.push_front(sum_next);
+		// TODO the following two lines can be written at once in the newer compiler
 		let crc_next = cumulative_crcs.front().unwrap().push(b);
 		cumulative_crcs.push_front(crc_next);
 
