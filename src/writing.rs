@@ -99,6 +99,9 @@ impl <T :io::Write> PacketWriter<T> {
 	pub fn into_inner(self) -> T {
 		self.wtr
 	}
+    pub fn inner_mut(&mut self) -> &mut T {
+        &mut self.wtr
+    }
 	/// Write a packet
 	///
 	///
