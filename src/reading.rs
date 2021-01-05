@@ -59,7 +59,7 @@ impl error::Error for OggReadError {
 
 	fn cause(&self) -> Option<&dyn error::Error> {
 		match *self {
-			OggReadError::ReadError(ref err) => Some(err as &error::Error),
+			OggReadError::ReadError(ref err) => Some(err as &dyn error::Error),
 			_ => None
 		}
 	}
