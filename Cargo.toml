@@ -19,7 +19,7 @@ futures = { version = "0.1", optional = true }
 bytes = { version = "0.4", optional = true }
 
 [dev-dependencies]
-rand = "0.3"
+rand = "0.8"
 
 [features]
 async = ["tokio-io", "futures", "bytes"]
