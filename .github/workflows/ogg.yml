@@ -22,6 +22,7 @@ jobs:
     - name: Run no-default-features builds
       if: matrix.toolchain != '1.27.2'
       run: |
+        cargo update -p byteorder --precise 1.3.0
         cargo test --verbose --no-default-features
         cargo doc --verbose --no-default-features
     - name: Run no-default-features builds (forbidding warnings)
