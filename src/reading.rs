@@ -13,6 +13,7 @@ Reading logic
 use std::error;
 use std::io;
 use std::io::{Cursor, Write, SeekFrom, Error, ErrorKind};
+use std::ops::{RangeBounds, Bound};
 use byteorder::{ReadBytesExt, LittleEndian};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -25,6 +26,7 @@ use std::cmp::Reverse;
 use std::collections::{VecDeque, binary_heap::{BinaryHeap, PeekMut}, BTreeSet};
 #[allow(unused_imports)]
 use backports::{Option_v1_35, u32_v1_32};
+use std::convert::TryInto;
 
 /// Error that can be raised when decoding an Ogg transport.
 #[derive(Debug)]
@@ -552,8 +554,46 @@ impl MagicFinder {
 	}
 }
 
+pub struct CapturedPage {
+	offset: u64,
+	bytes_buffer: VecDeque<u8>
+}
 
-pub fn find_next_page<R: Read>(reader: &mut R) -> Result<Option<(usize, usize)>, OggReadError> {
+impl CapturedPage {
+	fn stream_serial(&self) -> u32 {
+		u32::from_le_bytes(
+			self.bytes_buffer
+				.iter()
+				.skip(14)
+				.take(4)
+				.copied()
+				.collect::<Vec<_>>()
+				.try_into()
+				.expect("Bytes_buffer should be a valid captured page")
+		)
+	}
+	fn absolute_granule_position(&self) -> Option<u64> {
+		let res = u64::from_le_bytes(
+			self.bytes_buffer
+				.iter()
+				.skip(6)
+				.take(8)
+				.copied()
+				.collect::<Vec<_>>()
+				.try_into()
+				.expect("Bytes_buffer should be a valid captured page")
+		);
+		if res == !0 { None } else { Some(res) }
+	}
+	fn len(&self) -> u64 {
+		self.bytes_buffer.len() as u64
+	}
+}
+
+pub fn find_next_page<R: Read>(
+	reader: &mut R,
+	limit: Option<u64>,
+) -> Result<Option<CapturedPage>, OggReadError> {
 	let capacity = 26 + 255 + 255 * 255;
 
 	let mut bytes_buffer = VecDeque::with_capacity(capacity);
@@ -567,7 +607,11 @@ pub fn find_next_page<R: Read>(reader: &mut R) -> Result<Option<(usize, usize)>,
 	let mut page_segments_queue = VecDeque::new();
 	let mut segment_table_end_queue = BinaryHeap::new();
 	let mut page_end_queue = BinaryHeap::new();
-	for (i, b) in reader.bytes().enumerate() {
+	for (i, b) in reader
+		.bytes()
+		.enumerate()
+		.take_while(|&(i, _)| limit.map_or(true, |limit| i < limit as usize))
+	{
 		let b = tri!(b);
 		bytes_buffer.push_back(b);
 		// TODO the following two lines can be written at once in the newer compiler
@@ -611,9 +655,20 @@ pub fn find_next_page<R: Read>(reader: &mut R) -> Result<Option<(usize, usize)>,
 				+ cumulative_crcs[page_len - 26] * a
 				+ cumulative_crcs[page_len - 22] * b
 				+ cumulative_crcs[page_len] * c;
-			let crc_input = bytes_buffer.iter().skip(bytes_buffer.len() - page_len + 22).take(4);
-			if crc_calculated.0.to_le_bytes().iter().zip(crc_input).all(|(x, y)| x == y) {
-				return Ok(Some((page_begin, page_len)));
+			let crc_matches = {
+				// TODO borrow checker of newer version does not require this block
+				let crc_input = bytes_buffer.iter().skip(bytes_buffer.len() - page_len + 22).take(4);
+				crc_calculated.0.to_le_bytes().iter().zip(crc_input).all(|(x, y)| x == y)
+			};
+			if crc_matches {
+				// TODO borrow checker of newer version does not require this variable
+				let drain_len = bytes_buffer.len() - page_len;
+				bytes_buffer.drain(..drain_len);
+				let ret = CapturedPage {
+					offset: page_begin as u64,
+					bytes_buffer,
+				};
+				return Ok(Some(ret));
 			}
 			assert!(page_begin_queue.remove(&page_begin));
 			return Ok(None);
@@ -627,6 +682,35 @@ pub fn find_next_page<R: Read>(reader: &mut R) -> Result<Option<(usize, usize)>,
 		cumulative_crcs.drain(retain_len + 1..);
 	}
 	Ok(None)
+}
+
+struct PageIterator<R: Read> {
+	reader: R,
+	stream_serial: Option<u32>,
+	limit: u64,
+}
+
+impl <R: Read> PageIterator<R> {
+	fn new(reader: R, stream_serial: Option<u32>, limit: u64) -> Self {
+		Self {
+			reader,
+			stream_serial,
+			limit,
+		}
+	}
+}
+
+impl <R: Read> Iterator for PageIterator<R> {
+    type Item = Result<CapturedPage, OggReadError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+		let page = match find_next_page(&mut self.reader, Some(self.limit)) {
+			Err(e) => return Some(Err(e)),
+			Ok(None) => return None,
+			Ok(Some(page)) => page, 
+		};
+		let reader = PageReader::
+    }
 }
 
 /**
@@ -947,11 +1031,114 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			}
 		}
 	}
+
+	/// Seek the reader by the absolute granule position.
+	///
+	/// This function first find the page such that:
+	/// * the absolute granule position specified in the page header
+	///   is less than or equal to that specified in the argument,
+	/// * at least one packet ends within the page,
+	/// * the stream serial specified in the page header
+	///   is equal to that specified in the argument, if any, and
+	/// * the entire page is within the specified range of bytes.
+	///   (To search entire stream, specify `..` as the `range` argument`.)
+	///
+	/// Then, the internal reader state is set up so that
+	/// the next packet yieleded by `read_packet` or `read_packet_expected` is such packet that:
+	/// it is the first packet that ends within the page later than the page found above.
+	/// 
+	/// If such page mentioned above was found, 
+	/// this function returns the absolute granule position 
+	/// specified in the page header of the page.
+	/// If no such page was found, a `None` value is returned instead,
+	/// which means that the reader seek to the beginning of specified range.
+	///
+	/// Note that, when a stream_serial is specified,
+	/// pages with the stream serial should be "uniformly distributed" within the range;
+	/// otherwise this function may be less performant.
+	/// For example, it is ok to specify the "entire" range
+	/// if the file has only one logical stream
+	/// or several streams are multiplexed uniformly;
+	/// on the other hand, if the file has multiple chained logical stream and
+	/// you are focusing only one of them,
+	/// it is not recommended to specify the entire range;
+	/// instead, you should first find the "bounds" of the stream, 
+	/// that is, where the stream starts and ends,
+	/// and specify the appropriate range.
+	pub fn seek_absgp_le<R>(
+		&mut self, absgp: u64, stream_serial: Option<u32>, range: R
+	) -> Result<SeekResult, OggReadError>
+	where
+		R: RangeBounds<u64>
+	{
+		let mut seek_begin = match range.start_bound() {
+			Bound::Included(&a) => a,
+			Bound::Excluded(&a) => a+1, // TODO excluded bound should not be permitted
+			Bound::Unbounded => 0,
+		};
+		let mut seek_end = match range.end_bound() {
+			Bound::Excluded(&a) => a,
+			Bound::Included(&a) => a+1,  // TODO included bound should not be permitted
+			Bound::Unbounded => tri!(self.rdr.seek(SeekFrom::End(0))),
+		};
+
+		// lb: lower bound
+		tri!(self.rdr.seek(SeekFrom::Start(seek_begin)));
+		let mut reader = PageIterator::new(self.rdr, stream_serial, seek_end);
+		let first_page = match reader.next() {
+			None => return Ok(SeekResult::NoPageFound),
+			Some(page) => tri!(page),
+		};
+		let first_absgp = first_page.absolute_granule_position().unwrap_or_else(|| {
+		});
+		// ub: upper bound
+
+		let mut next_page_begin = seek_end;
+		let mut target_page = None;
+
+		// Narrow down the range of positions where the target page begins,
+		// until it is narrow enough and it is faster to search linearly.
+		'bisect: while seek_end - seek_begin > 1 {
+			let seek_pos = seek_begin + (seek_end - seek_begin) / 2;
+			tri!(self.rdr.seek(SeekFrom::Start(seek_pos)));
+			let mut current_pos = seek_pos;
+			while let Some(next_page) = tri!(find_next_page(
+				&mut self.rdr,
+				Some(next_page_begin - current_pos)
+			)) {
+				let page_begin = seek_pos + next_page.offset;
+				let page_end = page_begin + next_page.len();
+				current_pos = page_end;
+				if stream_serial.map_or(false, |s| s != next_page.stream_serial()) {
+					continue;
+				}
+				let page_absgp = match next_page.absolute_granule_position() {
+					None => continue,
+					Some(absgp) => absgp,
+				};
+				if page_absgp <= absgp {
+					target_page = Some((page_begin, next_page));
+					seek_begin = page_end;
+				} else {
+					next_page_begin = page_begin;
+					seek_end = seek_pos;
+				}
+				continue 'bisect;
+			}
+		}
+
+		Ok(None)
+	}
+
 	/// Resets the internal state by deleting all
 	/// unread packets.
 	pub fn delete_unread_packets(&mut self) {
 		self.base_pck_rdr.update_after_seek();
 	}
+}
+
+enum SeekResult {
+	NoPageFound,
 }
 
 // util function
