@@ -588,6 +588,12 @@ impl CapturedPage {
 	fn len(&self) -> u64 {
 		self.bytes_buffer.len() as u64
 	}
+	fn begin_pos(&self) -> u64 {
+		self.offset
+	}
+	fn end_pos(&self) -> u64 {
+		self.offset + self.len()
+	}
 }
 
 pub fn find_next_page<R: Read>(
@@ -684,14 +690,14 @@ pub fn find_next_page<R: Read>(
 	Ok(None)
 }
 
-struct PageIterator<R: Read> {
-	reader: R,
+struct PageIterator<'a, R: Read> {
+	reader: &'a mut R,
 	stream_serial: Option<u32>,
 	limit: u64,
 }
 
-impl <R: Read> PageIterator<R> {
-	fn new(reader: R, stream_serial: Option<u32>, limit: u64) -> Self {
+impl <'a, R: Read> PageIterator<'a, R> {
+	fn new(reader: &'a mut R, stream_serial: Option<u32>, limit: u64) -> Self {
 		Self {
 			reader,
 			stream_serial,
@@ -700,7 +706,7 @@ impl <R: Read> PageIterator<R> {
 	}
 }
 
-impl <R: Read> Iterator for PageIterator<R> {
+impl <'a, R: Read> Iterator for PageIterator<'a, R> {
     type Item = Result<CapturedPage, OggReadError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -709,7 +715,9 @@ impl <R: Read> Iterator for PageIterator<R> {
 			Ok(None) => return None,
 			Ok(Some(page)) => page, 
 		};
-		let reader = PageReader::
+		// let reader = PageReader::
+		// TODO when returning a page, its offset should be in stream-coordinated
+		todo!()
     }
 }
 
@@ -1084,50 +1092,91 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 
 		// lb: lower bound
 		tri!(self.rdr.seek(SeekFrom::Start(seek_begin)));
-		let mut reader = PageIterator::new(self.rdr, stream_serial, seek_end);
+		let mut reader = PageIterator::new(&mut self.rdr, stream_serial, seek_end);
 		let first_page = match reader.next() {
 			None => return Ok(SeekResult::NoPageFound),
 			Some(page) => tri!(page),
 		};
-		let first_absgp = first_page.absolute_granule_position().unwrap_or_else(|| {
-		});
-		// ub: upper bound
+		if let Some(first_page_absgp) = first_page.absolute_granule_position() {
+			if absgp < first_page_absgp {
+				// TODO Seek to the first page
+				return Ok(SeekResult::SeekedToFirstPage);
+			}
+			// Otherwise, we can discard all the packets in the first page.
+		} else {
+			let next_page = reader.find(|page| match page {
+				Err(_) => true,
+				Ok(page) => page.absolute_granule_position().is_some(),
+			});
+			let first_page_with_absgp = match next_page {
+				None => return Ok(SeekResult::NoPacketEnd),
+				Some(page) => tri!(page),
+			};
+			let first_absgp = first_page_with_absgp
+				.absolute_granule_position()
+				.expect("It is provable that absgp always exists");
+			if absgp < first_absgp {
+				// TODO Seek to the first page
+				return Ok(SeekResult::SeekedToFirstPage);
+			}
+		}
+		let mut lb_page_end = tri!(self.rdr.seek(SeekFrom::Current(0)));
 
-		let mut next_page_begin = seek_end;
-		let mut target_page = None;
+		let mut ub_pos = seek_end;
+		let mut ub_page_first = seek_end;
 
-		// Narrow down the range of positions where the target page begins,
-		// until it is narrow enough and it is faster to search linearly.
-		'bisect: while seek_end - seek_begin > 1 {
-			let seek_pos = seek_begin + (seek_end - seek_begin) / 2;
+		let linear_search_threshold = 256 * 256;
+
+		while lb_page_end < ub_pos {
+			let seek_pos = if ub_pos - lb_page_end < linear_search_threshold {
+				lb_page_end
+			} else {
+				(lb_page_end + ub_pos) / 2
+			};
 			tri!(self.rdr.seek(SeekFrom::Start(seek_pos)));
-			let mut current_pos = seek_pos;
-			while let Some(next_page) = tri!(find_next_page(
-				&mut self.rdr,
-				Some(next_page_begin - current_pos)
-			)) {
-				let page_begin = seek_pos + next_page.offset;
-				let page_end = page_begin + next_page.len();
-				current_pos = page_end;
-				if stream_serial.map_or(false, |s| s != next_page.stream_serial()) {
+
+			let first_page = match tri!(find_next_page(&mut self.rdr, Some(ub_page_first))) {
+				None => {
+					ub_pos = seek_pos;
 					continue;
+				},
+				Some(page) => page,
+			};
+			let first_page_begin_pos = first_page.begin_pos();
+
+			let target_page = if stream_serial.map_or(true, |s| s == first_page.stream_serial())
+				&& first_page.absolute_granule_position().is_some()
+			{
+				first_page
+			} else {
+				let mut reader = PageIterator::new(&mut self.rdr, stream_serial, ub_page_first);
+				let next_page = reader.find(|page| match page {
+					Err(_) => true,
+					Ok(page) => page.absolute_granule_position().is_some(),
+				});
+				match next_page {
+					None => {
+						ub_pos = seek_pos;
+						ub_page_first = first_page_begin_pos;
+						continue;
+					},
+					Some(page) => tri!(page),
 				}
-				let page_absgp = match next_page.absolute_granule_position() {
-					None => continue,
-					Some(absgp) => absgp,
-				};
-				if page_absgp <= absgp {
-					target_page = Some((page_begin, next_page));
-					seek_begin = page_end;
-				} else {
-					next_page_begin = page_begin;
-					seek_end = seek_pos;
-				}
-				continue 'bisect;
+			};
+
+			let target_absgp = target_page
+				.absolute_granule_position()
+				.expect("It is provable that absgp always exists");
+			if absgp < target_absgp {
+				ub_pos = seek_pos;
+				ub_page_first = first_page_begin_pos;
+				ub_target_page_first = target_page.begin_pos();
+			} else {
+				lb_page_end = target_page.end_pos();
 			}
 		}
 
-		Ok(None)
+		todo!()
 	}
 
 	/// Resets the internal state by deleting all
@@ -1137,8 +1186,10 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	}
 }
 
-enum SeekResult {
+pub enum SeekResult {
 	NoPageFound,
+	NoPacketEnd,
+	SeekedToFirstPage,
 }
 
 // util function
