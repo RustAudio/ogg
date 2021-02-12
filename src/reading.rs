@@ -560,7 +560,7 @@ pub struct CapturedPage {
 }
 
 impl CapturedPage {
-	fn stream_serial(&self) -> u32 {
+	pub fn stream_serial(&self) -> u32 {
 		u32::from_le_bytes(
 			self.bytes_buffer
 				.iter()
@@ -572,7 +572,7 @@ impl CapturedPage {
 				.expect("Bytes_buffer should be a valid captured page")
 		)
 	}
-	fn absolute_granule_position(&self) -> Option<u64> {
+	pub fn absolute_granule_position(&self) -> Option<u64> {
 		let res = u64::from_le_bytes(
 			self.bytes_buffer
 				.iter()
@@ -585,13 +585,13 @@ impl CapturedPage {
 		);
 		if res == !0 { None } else { Some(res) }
 	}
-	fn len(&self) -> u64 {
+	pub fn len(&self) -> u64 {
 		self.bytes_buffer.len() as u64
 	}
-	fn begin_pos(&self) -> u64 {
+	pub fn begin_pos(&self) -> u64 {
 		self.offset
 	}
-	fn end_pos(&self) -> u64 {
+	pub fn end_pos(&self) -> u64 {
 		self.offset + self.len()
 	}
 }
@@ -693,14 +693,16 @@ pub fn find_next_page<R: Read>(
 struct PageIterator<'a, R: Read> {
 	reader: &'a mut R,
 	stream_serial: Option<u32>,
+	offset: u64,
 	limit: u64,
 }
 
 impl <'a, R: Read> PageIterator<'a, R> {
-	fn new(reader: &'a mut R, stream_serial: Option<u32>, limit: u64) -> Self {
+	fn new(reader: &'a mut R, stream_serial: Option<u32>, offset: u64, limit: u64) -> Self {
 		Self {
 			reader,
 			stream_serial,
+			offset,
 			limit,
 		}
 	}
@@ -710,14 +712,19 @@ impl <'a, R: Read> Iterator for PageIterator<'a, R> {
     type Item = Result<CapturedPage, OggReadError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-		let page = match find_next_page(&mut self.reader, Some(self.limit)) {
-			Err(e) => return Some(Err(e)),
-			Ok(None) => return None,
-			Ok(Some(page)) => page, 
-		};
-		// let reader = PageReader::
-		// TODO when returning a page, its offset should be in stream-coordinated
-		todo!()
+		loop {
+			let mut page = match find_next_page(&mut self.reader, Some(self.limit - self.offset)) {
+				Err(e) => return Some(Err(e)),
+				Ok(None) => return None,
+				Ok(Some(page)) => page, 
+			};
+			let begin_pos = self.offset + page.offset;
+			self.offset += page.end_pos();
+			page.offset = begin_pos;
+			if self.stream_serial.map_or(true, |s| s == page.stream_serial()) {
+				break Some(Ok(page));
+			}
+		}
     }
 }
 
@@ -1075,55 +1082,28 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// and specify the appropriate range.
 	pub fn seek_absgp_le<R>(
 		&mut self, absgp: u64, stream_serial: Option<u32>, range: R
-	) -> Result<SeekResult, OggReadError>
+	) -> Result<Option<u64>, OggReadError>
 	where
 		R: RangeBounds<u64>
 	{
-		let mut seek_begin = match range.start_bound() {
+		let seek_begin = match range.start_bound() {
 			Bound::Included(&a) => a,
 			Bound::Excluded(&a) => a+1, // TODO excluded bound should not be permitted
 			Bound::Unbounded => 0,
 		};
-		let mut seek_end = match range.end_bound() {
+		let seek_end = match range.end_bound() {
 			Bound::Excluded(&a) => a,
 			Bound::Included(&a) => a+1,  // TODO included bound should not be permitted
 			Bound::Unbounded => tri!(self.rdr.seek(SeekFrom::End(0))),
 		};
 
 		// lb: lower bound
-		tri!(self.rdr.seek(SeekFrom::Start(seek_begin)));
-		let mut reader = PageIterator::new(&mut self.rdr, stream_serial, seek_end);
-		let first_page = match reader.next() {
-			None => return Ok(SeekResult::NoPageFound),
-			Some(page) => tri!(page),
-		};
-		if let Some(first_page_absgp) = first_page.absolute_granule_position() {
-			if absgp < first_page_absgp {
-				// TODO Seek to the first page
-				return Ok(SeekResult::SeekedToFirstPage);
-			}
-			// Otherwise, we can discard all the packets in the first page.
-		} else {
-			let next_page = reader.find(|page| match page {
-				Err(_) => true,
-				Ok(page) => page.absolute_granule_position().is_some(),
-			});
-			let first_page_with_absgp = match next_page {
-				None => return Ok(SeekResult::NoPacketEnd),
-				Some(page) => tri!(page),
-			};
-			let first_absgp = first_page_with_absgp
-				.absolute_granule_position()
-				.expect("It is provable that absgp always exists");
-			if absgp < first_absgp {
-				// TODO Seek to the first page
-				return Ok(SeekResult::SeekedToFirstPage);
-			}
-		}
-		let mut lb_page_end = tri!(self.rdr.seek(SeekFrom::Current(0)));
-
+		let mut lb_page_begin = seek_begin;
+		let mut lb_page_end = seek_begin;
+		let mut lb_absgp = None;
+		// ub: upper bound
 		let mut ub_pos = seek_end;
-		let mut ub_page_first = seek_end;
+		let mut ub_page_begin = seek_end;
 
 		let linear_search_threshold = 256 * 256;
 
@@ -1134,14 +1114,18 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				(lb_page_end + ub_pos) / 2
 			};
 			tri!(self.rdr.seek(SeekFrom::Start(seek_pos)));
+			println!("{} {} {} {} {}", lb_page_begin, lb_page_end, seek_pos, ub_pos, ub_page_begin);
 
-			let first_page = match tri!(find_next_page(&mut self.rdr, Some(ub_page_first))) {
+			let mut first_page = match tri!(find_next_page(&mut self.rdr, Some(ub_page_begin))) {
 				None => {
+					println!("\tNo first page");
 					ub_pos = seek_pos;
 					continue;
 				},
 				Some(page) => page,
 			};
+			first_page.offset += seek_pos;
+			let first_page = first_page;
 			let first_page_begin_pos = first_page.begin_pos();
 
 			let target_page = if stream_serial.map_or(true, |s| s == first_page.stream_serial())
@@ -1149,15 +1133,21 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			{
 				first_page
 			} else {
-				let mut reader = PageIterator::new(&mut self.rdr, stream_serial, ub_page_first);
+				let mut reader = PageIterator::new(
+					&mut self.rdr, 
+					stream_serial, 
+					first_page.end_pos(),
+					ub_page_begin,
+				);
 				let next_page = reader.find(|page| match page {
 					Err(_) => true,
 					Ok(page) => page.absolute_granule_position().is_some(),
 				});
 				match next_page {
 					None => {
+						println!("\tNo next page");
 						ub_pos = seek_pos;
-						ub_page_first = first_page_begin_pos;
+						ub_page_begin = first_page_begin_pos;
 						continue;
 					},
 					Some(page) => tri!(page),
@@ -1167,16 +1157,29 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			let target_absgp = target_page
 				.absolute_granule_position()
 				.expect("It is provable that absgp always exists");
+			println!("\tabsgp: {}", target_absgp);
 			if absgp < target_absgp {
+				println!("\tbefore here");
 				ub_pos = seek_pos;
-				ub_page_first = first_page_begin_pos;
-				ub_target_page_first = target_page.begin_pos();
+				ub_page_begin = first_page_begin_pos;
 			} else {
+				println!("\tafter here");
+				lb_page_begin = target_page.begin_pos();
 				lb_page_end = target_page.end_pos();
+				lb_absgp = Some(target_absgp);
 			}
 		}
 
-		todo!()
+		println!("Seek to {}", lb_page_begin);
+		tri!(self.seek_bytes(SeekFrom::Start(lb_page_begin)));
+		if lb_absgp.is_some() {
+			let page = tri!(self.read_ogg_page())
+				.expect("If lb_absgp is Some, then there is a page right after lb_page_begin");
+			tri!(self.base_pck_rdr.push_page(page));
+			// Consume packets in the current page
+			std::iter::repeat_with(|| self.base_pck_rdr.read_packet()).find(Option::is_none);
+		}
+		Ok(lb_absgp)
 	}
 
 	/// Resets the internal state by deleting all
