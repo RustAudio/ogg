@@ -716,7 +716,7 @@ impl <'a, R: Read> Iterator for PageIterator<'a, R> {
 			let mut page = match find_next_page(&mut self.reader, Some(self.limit - self.offset)) {
 				Err(e) => return Some(Err(e)),
 				Ok(None) => return None,
-				Ok(Some(page)) => page, 
+				Ok(Some(page)) => page,
 			};
 			let begin_pos = self.offset + page.offset;
 			self.offset += page.end_pos();
@@ -1061,9 +1061,9 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// Then, the internal reader state is set up so that
 	/// the next packet yieleded by `read_packet` or `read_packet_expected` is such packet that:
 	/// it is the first packet that ends within the page later than the page found above.
-	/// 
-	/// If such page mentioned above was found, 
-	/// this function returns the absolute granule position 
+	///
+	/// If such page mentioned above was found,
+	/// this function returns the absolute granule position
 	/// specified in the page header of the page.
 	/// If no such page was found, a `None` value is returned instead,
 	/// which means that the reader seek to the beginning of specified range.
@@ -1077,7 +1077,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// on the other hand, if the file has multiple chained logical stream and
 	/// you are focusing only one of them,
 	/// it is not recommended to specify the entire range;
-	/// instead, you should first find the "bounds" of the stream, 
+	/// instead, you should first find the "bounds" of the stream,
 	/// that is, where the stream starts and ends,
 	/// and specify the appropriate range.
 	pub fn seek_absgp_le<R>(
@@ -1114,11 +1114,11 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				(lb_page_end + ub_pos) / 2
 			};
 			tri!(self.rdr.seek(SeekFrom::Start(seek_pos)));
-			println!("{} {} {} {} {}", lb_page_begin, lb_page_end, seek_pos, ub_pos, ub_page_begin);
+			// println!("{} {} {} {} {}", lb_page_begin, lb_page_end, seek_pos, ub_pos, ub_page_begin);
 
 			let mut first_page = match tri!(find_next_page(&mut self.rdr, Some(ub_page_begin))) {
 				None => {
-					println!("\tNo first page");
+					// println!("\tNo first page");
 					ub_pos = seek_pos;
 					continue;
 				},
@@ -1134,8 +1134,8 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				first_page
 			} else {
 				let mut reader = PageIterator::new(
-					&mut self.rdr, 
-					stream_serial, 
+					&mut self.rdr,
+					stream_serial,
 					first_page.end_pos(),
 					ub_page_begin,
 				);
@@ -1145,7 +1145,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				});
 				match next_page {
 					None => {
-						println!("\tNo next page");
+						// println!("\tNo next page");
 						ub_pos = seek_pos;
 						ub_page_begin = first_page_begin_pos;
 						continue;
@@ -1157,20 +1157,20 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			let target_absgp = target_page
 				.absolute_granule_position()
 				.expect("It is provable that absgp always exists");
-			println!("\tabsgp: {}", target_absgp);
+			// println!("\tabsgp: {}", target_absgp);
 			if absgp < target_absgp {
-				println!("\tbefore here");
+				// println!("\tbefore here");
 				ub_pos = seek_pos;
 				ub_page_begin = first_page_begin_pos;
 			} else {
-				println!("\tafter here");
+				// println!("\tafter here");
 				lb_page_begin = target_page.begin_pos();
 				lb_page_end = target_page.end_pos();
 				lb_absgp = Some(target_absgp);
 			}
 		}
 
-		println!("Seek to {}", lb_page_begin);
+		// println!("Seek to {}", lb_page_begin);
 		tri!(self.seek_bytes(SeekFrom::Start(lb_page_begin)));
 		if lb_absgp.is_some() {
 			let page = tri!(self.read_ogg_page())
