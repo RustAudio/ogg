@@ -1117,7 +1117,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			let seek_pos = if ub_pos - lb_page_end < linear_search_threshold {
 				lb_page_end
 			} else {
-				(lb_page_end + ub_pos) / 2
+				lb_page_end + (ub_pos - lb_page_end) / 2
 			};
 			tri!(self.rdr.seek(SeekFrom::Start(seek_pos)));
 			// println!("{} {} {} {} {}", lb_page_begin, lb_page_end, seek_pos, ub_pos, ub_page_begin);
@@ -1186,6 +1186,55 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			std::iter::repeat_with(|| self.base_pck_rdr.read_packet()).find(Option::is_none);
 		}
 		Ok(lb_absgp)
+	}
+
+	/// Finds the position of the end of logical stream
+	///
+	/// This function first reads the next page via `find_next_page`.
+	/// If there are no such page, this function returns `Ok(None)`.
+	/// If there are, it retrieves the stream serial that the page belongs.
+	/// Then, this function performs binary search for the end of the logical stream
+	/// with the retrieved stream serial.
+	/// Therefore, the logical stream must be unmultiplexed until the end of the stream,
+	/// or it may misbehave.
+	///
+	/// The state of reader after calling this function is unspecified.
+	pub fn find_end_of_logical_stream(&mut self) -> Result<Option<u64>, OggReadError> {
+		let current_pos = tri!(self.rdr.seek(SeekFrom::Current(0)));
+		let page = match tri!(find_next_page(&mut self.rdr, None)) {
+			Some(page) => page,
+			None => return Ok(None)
+		};
+		let stream_serial = page.stream_serial();
+		let mut lb_pos = current_pos + page.offset;
+		let mut ub_pos = tri!(self.rdr.seek(SeekFrom::End(0)));
+		let linear_search_threshold = 256 * 256;
+
+		while lb_pos < ub_pos {
+			let seek_pos = if ub_pos - lb_pos < linear_search_threshold {
+				lb_pos
+			} else {
+				lb_pos + (ub_pos - lb_pos) / 2
+			};
+			tri!(self.rdr.seek(SeekFrom::Start(seek_pos)));
+
+			let mut target_page = match tri!(find_next_page(&mut self.rdr, None)) {
+				None => {
+					ub_pos = seek_pos;
+					continue;
+				},
+				Some(page) => page,
+			};
+			target_page.offset += seek_pos;
+			let target_page = target_page;
+			if target_page.stream_serial() == stream_serial {
+				lb_pos = target_page.end_pos();
+			} else {
+				ub_pos = target_page.begin_pos();
+			}
+		}
+
+		Ok(Some(lb_pos))
 	}
 
 	/// Resets the internal state by deleting all
