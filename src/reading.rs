@@ -1249,12 +1249,6 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	}
 }
 
-pub enum SeekResult {
-	NoPageFound,
-	NoPacketEnd,
-	SeekedToFirstPage,
-}
-
 // util function
 fn seek_before_end<T :io::Read + io::Seek>(mut rdr :T,
 		offs :u64) -> Result<u64, OggReadError> {
