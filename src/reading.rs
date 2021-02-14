@@ -843,6 +843,12 @@ impl<T :io::Read> PacketReader<T> {
 
 		Ok(Some(tri!(pg_prs.parse_packet_data(packet_data))))
 	}
+
+	/// Resets the internal state by deleting all
+	/// unread packets.
+	pub fn delete_unread_packets(&mut self) {
+		self.base_pck_rdr.update_after_seek();
+	}
 }
 
 impl<T :io::Read + io::Seek> PacketReader<T> {
@@ -1240,12 +1246,6 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		}
 
 		Ok(Some(lb_pos))
-	}
-
-	/// Resets the internal state by deleting all
-	/// unread packets.
-	pub fn delete_unread_packets(&mut self) {
-		self.base_pck_rdr.update_after_seek();
 	}
 }
 
