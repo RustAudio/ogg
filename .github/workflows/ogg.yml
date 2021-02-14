@@ -29,6 +29,8 @@ jobs:
       env:
         RUSTFLAGS: -D warnings
       run: |
+        cargo update -p byteorder --precise 1.3.0
+        cargo update -p byteorder --precise 1.3.0
         sed -i'.bak' -e '/rand/d' Cargo.toml
         cargo test --verbose --no-default-features
         cargo doc --verbose --no-default-features

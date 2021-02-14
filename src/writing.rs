@@ -99,6 +99,22 @@ impl <T :io::Write> PacketWriter<T> {
 	pub fn into_inner(self) -> T {
 		self.wtr
 	}
+	/// Access the interior writer
+	///
+	/// This allows access of the writer contained inside.
+	/// No guarantees are given onto the pattern of the writes.
+	/// They may change in the future.
+	pub fn inner(&self) -> &T {
+		&self.wtr
+	}
+	/// Access the interior writer mutably
+	///
+	/// This allows access of the writer contained inside.
+	/// No guarantees are given onto the pattern of the writes.
+	/// They may change in the future.
+	pub fn inner_mut(&mut self) -> &mut T {
+		&mut self.wtr
+	}
 	/// Write a packet
 	///
 	///
