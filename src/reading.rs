@@ -1086,6 +1086,11 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	///   instead, you should first find the "bounds" of the stream,
 	///   that is, where the stream starts and ends,
 	///   and specify the appropriate range.
+	///
+	/// ## Returns
+	///
+	/// This function returns the absolute granule position of the last "old" packet.
+	/// If there were no "old" packets, it returns `None`.
 	pub fn seek_absgp_new<R>(
 		&mut self, absgp: u64, stream_serial: Option<u32>, range: R
 	) -> Result<Option<u64>, OggReadError>
