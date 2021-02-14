@@ -1047,40 +1047,46 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		}
 	}
 
-	/// Seek the reader by the absolute granule position.
+	/// Seeks the reader by the absolute granule position.
 	///
-	/// This function first find the page such that:
-	/// * the absolute granule position specified in the page header
-	///   is less than or equal to that specified in the argument,
-	/// * at least one packet ends within the page,
-	/// * the stream serial specified in the page header
-	///   is equal to that specified in the argument, if any, and
-	/// * the entire page is within the specified range of bytes.
-	///   (To search entire stream, specify `..` as the `range` argument`.)
+	/// This functions are intersted in such packet that:
+	/// - belongs to the logical stream specified by `stream_serial`, if specified, and
+	/// - ends in a page which entirely spans within the given range.
+	/// Let us call such packet "interesting."
 	///
-	/// Then, the internal reader state is set up so that
-	/// the next packet yieleded by `read_packet` or `read_packet_expected` is such packet that:
-	/// it is the first packet that ends within the page later than the page found above.
+	/// Among those packets, let us call a packet is "old" if the packet whose
+	/// absolute granule position is less than or equal to the provided `absgp`.
+	/// By calling this function,
+	/// the internal state of this reader is equivalent to the state
+	/// right after reading the last "old" packet.
 	///
-	/// If such page mentioned above was found,
-	/// this function returns the absolute granule position
-	/// specified in the page header of the page.
-	/// If no such page was found, a `None` value is returned instead,
-	/// which means that the reader seek to the beginning of specified range.
+	/// Therefore, after calling this function and before seeking explicitly elsewhere,
+	/// all the "interesting" packets will have the absolute granule position
+	/// greater than the specified `absgp`.
 	///
-	/// Note that, when a stream_serial is specified,
-	/// pages with the stream serial should be "uniformly distributed" within the range;
-	/// otherwise this function may be less performant.
-	/// For example, it is ok to specify the "entire" range
-	/// if the file has only one logical stream
-	/// or several streams are multiplexed uniformly;
-	/// on the other hand, if the file has multiple chained logical stream and
-	/// you are focusing only one of them,
-	/// it is not recommended to specify the entire range;
-	/// instead, you should first find the "bounds" of the stream,
-	/// that is, where the stream starts and ends,
-	/// and specify the appropriate range.
-	pub fn seek_absgp_le<R>(
+	/// This function use binary searching to find appropriate position to seek.
+	/// Therefore, the following conditions should be satisfied:
+	/// - The absolute granule position specified should monotonically increase
+	///   (except for those pages without a packet end).
+	///   If `stream_serial` is fixed,
+	///   or there are only one logical stream within the specified range,
+	///   then this condition is naturally fulfilled.
+	///   However, if `stream_serial` is `None`
+	///   and there are more than one logical stream within the range,
+	///   you should be careful of the possibility of non-monotonicity.
+	/// - When `stream_serial` is specified,
+	///   the pages with the stream serial should be "well-distributed" within the range;
+	///   otherwise, this function may be less performant.
+	///   For example, it is ok to specify the "entire" range
+	///   if the file has only one logical stream
+	///   or several streams are multiplexed uniformly;
+	///   on the other hand, if the file has multiple chained logical stream and
+	///   you are focusing only one of them,
+	///   it is not recommended to specify the entire range;
+	///   instead, you should first find the "bounds" of the stream,
+	///   that is, where the stream starts and ends,
+	///   and specify the appropriate range.
+	pub fn seek_absgp_new<R>(
 		&mut self, absgp: u64, stream_serial: Option<u32>, range: R
 	) -> Result<Option<u64>, OggReadError>
 	where
@@ -1088,14 +1094,14 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	{
 		let seek_begin = match range.start_bound() {
 			Bound::Included(&a) => a,
-			Bound::Excluded(&a) => a+1, // TODO excluded bound should not be permitted
+			Bound::Excluded(&a) => a+1,
 			Bound::Unbounded => 0,
 		};
 		let seek_end = match range.end_bound() {
 			Bound::Excluded(&a) => a,
-			Bound::Included(&a) => a+1,  // TODO included bound should not be permitted
+			Bound::Included(&a) => a+1,
 			Bound::Unbounded => tri!(self.rdr.seek(SeekFrom::End(0))),
-		};
+		}.max(seek_begin);
 
 		// lb: lower bound
 		let mut lb_page_begin = seek_begin;
