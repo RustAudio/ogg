@@ -1055,7 +1055,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 
 	/// Seeks the reader by the absolute granule position.
 	///
-	/// This functions are intersted in such packet that:
+	/// This function is intersted in such packet that:
 	/// - belongs to the logical stream specified by `stream_serial`, if specified, and
 	/// - ends in a page which entirely spans within the given range.
 	/// Let us call such packet "interesting."
