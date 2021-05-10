@@ -530,10 +530,10 @@ impl BasePacketReader {
 
 #[derive(Default)]
 struct MagicFinder {
-	len: usize,
+	len :usize,
 }
 impl MagicFinder {
-	fn feed(&mut self, b: u8){
+	fn feed(&mut self, b :u8) {
 		match (b, self.len) {
 			(b'O', _) => self.len = 1,
 			(b'g', 1..=2) | (b'S', 3) => self.len += 1,
