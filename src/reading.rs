@@ -1043,10 +1043,10 @@ pub mod async_api {
 	impl PageDecodeState {
 		fn needed_size(&self) -> usize {
 			match self {
-				&PageDecodeState::Head => 27,
-				&PageDecodeState::Segments(_, s) => s,
-				&PageDecodeState::PacketData(_, s) => s,
-				&PageDecodeState::InUpdate => panic!("invalid state"),
+				PageDecodeState::Head => 27,
+				PageDecodeState::Segments(_, s) => *s,
+				PageDecodeState::PacketData(_, s) => *s,
+				PageDecodeState::InUpdate => panic!("invalid state"),
 			}
 		}
 	}

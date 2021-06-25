@@ -37,8 +37,8 @@ fn run() -> Result<(), std::io::Error> {
 	let output_path = env::args().nth(2).expect("No arg for output path found. Please specify a file to save to.");
 	println!("Opening file: {}", input_path);
 	println!("Writing to: {}", output_path);
-	let mut f_i = try!(File::open(input_path));
-	let mut f_o = try!(File::create(output_path));
+	let mut f_i = File::open(input_path)?;
+	let mut f_o = File::create(output_path)?;
 	let mut pck_rdr = PacketReader::new(&mut f_i);
 
 	// This call doesn't discard anything as nothing has
