@@ -25,7 +25,7 @@ fn print_u8_slice(arr :&[u8]) {
 		for a in arr {
 			print!("0x{:02x} ", a);
 		}
-		println!("");
+		println!();
 		return;
 	}
 	println!("[");
@@ -56,7 +56,7 @@ fn dump_pck_info(p :&Packet, ctr :usize) {
 fn run() -> Result<(), std::io::Error> {
 	let file_path = env::args().nth(1).expect("No arg found. Please specify a file to open.");
 	println!("Opening file: {}", file_path);
-	let mut f = try!(File::open(file_path));
+	let mut f = File::open(file_path)?;
 	let mut pck_rdr = PacketReader::new(&mut f);
 
 	let mut ctr = 0;

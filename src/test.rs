@@ -409,7 +409,7 @@ fn test_seeking_continued() {
 
 		for ctr in 0..pck_count {
 			let r = rng.next() as usize;
-			let size = (r & 127) + pck_len_add[(r >> 8) & 7] >> 2;
+			let size = ((r & 127) + pck_len_add[(r >> 8) & 7]) >> 2;
 			w.write_packet(gen_pck(ctr, size), 0xdeadb33f,
 				if (ctr + 1) % 3 == 0 { ep } else { np }, ctr as u64).unwrap();
 		}

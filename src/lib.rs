@@ -6,7 +6,11 @@
 // specified in the LICENSE file attached to this
 // source distribution.
 
+#![allow(unknown_lints)]
 #![forbid(unsafe_code)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::nonminimal_bool)]
+#![allow(clippy::tabs_in_doc_comments)]
 
 /*!
 Ogg container decoder and encoder

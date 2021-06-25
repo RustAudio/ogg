@@ -29,7 +29,7 @@ fn dump_pck_info(p :&Packet) {
 fn run() -> Result<(), std::io::Error> {
 	let file_path = env::args().nth(1).expect("No arg found. Please specify a file to open.");
 	println!("Opening file: {}", file_path);
-	let mut f = try!(File::open(file_path));
+	let mut f = File::open(file_path)?;
 	let mut pck_rdr = PacketReader::new(&mut f);
 
 	let mut byte_ctr :u64 = 0;
@@ -43,7 +43,7 @@ fn run() -> Result<(), std::io::Error> {
 				dump_pck_info(&p);
 				let elapsed = begin.elapsed();
 				let elapsed_ms = 1000.0 * elapsed.as_secs() as f64 +
-					elapsed.subsec_nanos() as f64 / 1000_000.0;
+					elapsed.subsec_nanos() as f64 / 1_000_000.0;
 				println!("speed: {:.3} kb per ms ({} read)",
 					byte_ctr as f64 / elapsed_ms / 1000.0,
 					byte_ctr);
