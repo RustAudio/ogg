@@ -40,6 +40,7 @@ macro_rules! tri {
 	};
 }
 
+mod backports;
 mod crc;
 pub mod reading;
 pub mod writing;

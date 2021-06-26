@@ -11,6 +11,8 @@ Implementation of the CRC algorithm with the
 vorbis specific parameters and setup
 */
 
+use std::ops::{Add, Mul};
+
 // Lookup table to enable bytewise CRC32 calculation
 // Created using the crc32-table-generate example.
 //
@@ -105,17 +107,141 @@ const fn lookup_array() -> [u32; 0x100] {
 }
 */
 
+/// An instance of polynomial quotient ring,
+/// F_2[x] / x^32 + x^26 + x^23 + x^22 + x^16 + x^12 + x^11 + x^10 + x^8 + x^7 + x^5 + x^4 + x^2 + x + 1
+/// represented as a 32-bit unsigned integer.
+/// The i-th least significant bit corresponds to the coefficient of x^i.
+///
+/// This struct is introduced for the sake of readability.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Crc32(pub u32);
+
+impl From<u32> for Crc32 {
+	fn from(a: u32) -> Self {
+		Crc32(a)
+	}
+}
+impl From<Crc32> for u32 {
+	fn from(a: Crc32) -> Self {
+		a.0
+	}
+}
+
+impl<C> Add<C> for Crc32 where C: Into<u32> {
+	type Output = Crc32;
+
+	fn add(self, rhs: C) -> Self {
+		Crc32(self.0 ^ rhs.into())
+	}
+}
+
+/// An array such that X_N[n] = x^n on Crc32.
+const X_N: &[u32] = &[
+	0x00000001, 0x00000002, 0x00000004, 0x00000008,
+	0x00000010, 0x00000020, 0x00000040, 0x00000080,
+	0x00000100, 0x00000200, 0x00000400, 0x00000800,
+	0x00001000, 0x00002000, 0x00004000, 0x00008000,
+	0x00010000, 0x00020000, 0x00040000, 0x00080000,
+	0x00100000, 0x00200000, 0x00400000, 0x00800000,
+	0x01000000, 0x02000000, 0x04000000, 0x08000000,
+	0x10000000, 0x20000000, 0x40000000, 0x80000000,
+	0x04c11db7, 0x09823b6e, 0x130476dc, 0x2608edb8,
+	0x4c11db70, 0x9823b6e0, 0x34867077, 0x690ce0ee,
+	0xd219c1dc, 0xa0f29e0f, 0x452421a9, 0x8a484352,
+	0x10519b13, 0x20a33626, 0x41466c4c, 0x828cd898,
+	0x01d8ac87, 0x03b1590e, 0x0762b21c, 0x0ec56438,
+	0x1d8ac870, 0x3b1590e0, 0x762b21c0, 0xec564380,
+	0xdc6d9ab7, 0xbc1a28d9, 0x7cf54c05, 0xf9ea980a,
+	0xf7142da3, 0xeae946f1, 0xd1139055, 0xa6e63d1d,
+];
+
+impl<C> Mul<C> for Crc32 where C: Into<u32> {
+	type Output = Crc32;
+	fn mul(self, rhs: C) -> Self {
+		// Very slow algorithm, so-called "grade-school multiplication".
+		// Will be refined later.
+		let mut ret = 0;
+		let mut i = 0;
+		let rhs = rhs.into();
+		while i < 32 {
+			let mut j = 0;
+			while j < 32 {
+				if (self.0 & 1 << i) != 0 && (rhs & 1 << j) != 0 {
+					ret ^= X_N[i + j];
+				}
+				j += 1;
+			}
+			i += 1;
+		}
+		ret.into()
+	}
+}
+
+impl Crc32 {
+	/// Given a polynomial of degree 7 rhs, calculates self * x^8 + rhs * x^32.
+	pub fn push(&self, rhs: u8) -> Self {
+		let ret = (self.0 << 8) ^ CRC_LOOKUP_ARRAY[rhs as usize ^ (self.0 >> 24) as usize];
+		ret.into()
+	}
+
+	/// Calculates self * x.
+	pub fn mul_x(&self) -> Self {
+		let (b, c) = self.0.overflowing_mul(2);
+		let ret = b ^ (0u32.wrapping_sub(c as u32) & 0x04c11db7);
+		ret.into()
+	}
+
+	/// Calculates self * x^8.
+	pub fn mul_x8(&self) -> Self {
+		self.push(0)
+	}
+
+	/// Given an integer n, calculates self * x^(8n) in a naive way.
+	/// The time complexity is O(n), and may be slow for large n.
+	pub fn mul_x8n(&self, mut n: usize) -> Self {
+		let mut ret = *self;
+		while n > 0 {
+			ret = ret.mul_x8();
+			n -= 1;
+		}
+		ret
+	}
+}
+
+/// An array such that X8_2_N[n] = (x^8)^(2^n) on Crc32.
+const X8_2_N: &[u32] = &[
+	0x00000100, 0x00010000, 0x04c11db7, 0x490d678d,
+	0xe8a45605, 0x75be46b7, 0xe6228b11, 0x567fddeb,
+	0x88fe2237, 0x0e857e71, 0x7001e426, 0x075de2b2,
+	0xf12a7f90, 0xf0b4a1c1, 0x58f46c0c, 0xc3395ade,
+	0x96837f8c, 0x544037f9, 0x23b7b136, 0xb2e16ba8,
+];
+
+impl Crc32 {
+	/// Given a non-negative integer n, calculates x^(8n).
+	/// It must be n < 2^20, othrwise it panics.
+	pub fn x_8n(mut n: usize) -> Crc32 {
+		assert!(n < 1<<20);
+		let mut ret = Crc32(1);
+		let mut i = 0;
+		while n > 0 {
+			if n & 1 > 0 {
+				ret = ret * X8_2_N[i];
+			}
+			n /= 2;
+			i += 1;
+		}
+		ret
+	}
+}
+
 #[cfg(test)]
 pub fn vorbis_crc32(array :&[u8]) -> u32 {
 	return vorbis_crc32_update(0, array);
 }
 
 pub fn vorbis_crc32_update(cur :u32, array :&[u8]) -> u32 {
-	let mut ret :u32 = cur;
-	for av in array {
-		ret = (ret << 8) ^ CRC_LOOKUP_ARRAY[(*av as u32 ^ (ret >> 24)) as usize];
-	}
-	return ret;
+	array.iter().fold(Crc32(cur), |cur, &x| cur.push(x)).0
 }
 
 #[test]
@@ -138,4 +264,44 @@ fn test_crc32() {
 	assert_eq!(vorbis_crc32(&[61,61,33]), 0x9f858776);
 	assert_eq!(vorbis_crc32(test_arr), 0x3d4e946d);
 	assert_eq!(vorbis_crc32(&test_arr[0 .. 27]), 0x7b374db8);
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_mul_x() {
+		for (i, &a) in CRC_LOOKUP_ARRAY.iter().enumerate() {
+			let mut x = Crc32::from(i as u32);
+			for _ in 0..32 {
+				x = x.mul_x();
+			}
+			assert_eq!(a, x.0);
+		}
+	}
+
+	fn x_8n_naive(n: usize) -> Crc32 {
+		let mut ret = Crc32(1);
+		for _ in 0..n {
+			ret = ret.push(0);
+		}
+		ret
+	 }
+
+	#[test]
+	fn test_x_8n() {
+		for i in 0..100 {
+			assert_eq!(x_8n_naive(i), Crc32::x_8n(i));
+		}
+		assert_eq!(x_8n_naive(12345), Crc32::x_8n(12345));
+	}
+
+	#[test]
+	fn test_mul_x8n() {
+		let a = Crc32(0xa1b2c3d4);
+		for i in 0..100 {
+			assert_eq!(a * Crc32::x_8n(i), a.mul_x8n(i));
+		}
+	}
 }
