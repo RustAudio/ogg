@@ -62,7 +62,7 @@ fn run() -> Result<(), std::io::Error> {
 				};
 				let stream_serial = pck.stream_serial();
 				let absgp_page = pck.absgp_page();
-				btry!(pck_wtr.write_packet(pck.data.into_boxed_slice(),
+				btry!(pck_wtr.write_packet(pck.data,
 					stream_serial,
 					inf,
 					absgp_page));
