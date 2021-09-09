@@ -120,15 +120,15 @@ impl <'writer, T :io::Write> PacketWriter<'writer, T> {
 	///
 	///
 	pub fn write_packet<P: Into<Cow<'writer, [u8]>>>(&mut self, pck_cont :P,
-		serial :u32,
-		inf :PacketWriteEndInfo,
-		/* TODO find a better way to design the API around
-			passing the absgp to the underlying implementation.
-			e.g. the caller passes a closure on init which gets
-			called when we encounter a new page... with the param
-			the index inside the current page, or something.
-		*/
-		absgp :u64) -> IoResult<()> {
+			serial :u32,
+			inf :PacketWriteEndInfo,
+			/* TODO find a better way to design the API around
+				passing the absgp to the underlying implementation.
+				e.g. the caller passes a closure on init which gets
+				called when we encounter a new page... with the param
+				the index inside the current page, or something.
+			*/
+			absgp :u64) -> IoResult<()> {
 		let is_end_stream :bool = inf == PacketWriteEndInfo::EndStream;
 		let pg = self.page_vals.entry(serial).or_insert(
 			CurrentPageValues {
