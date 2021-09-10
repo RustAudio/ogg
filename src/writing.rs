@@ -300,7 +300,7 @@ impl <'writer, T :io::Write> PacketWriter<'writer, T> {
 	}
 }
 
-impl<T :io::Seek + io::Write> PacketWriter<'_, T> {
+impl<'writer, T :io::Seek + io::Write> PacketWriter<'writer, T> {
 	pub fn get_current_offs(&mut self) -> Result<u64, io::Error> {
 		self.wtr.seek(SeekFrom::Current(0))
 	}
