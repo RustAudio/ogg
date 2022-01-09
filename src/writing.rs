@@ -163,16 +163,11 @@ impl<T: io::Write> PacketWriter<T> {
                 if segment_i + 1 < needed_segments {
                     // We have to flush a page, but we know there are more to come...
                     pg.pck_this_overflow_idx = Some((segment_i + 1) * 255);
-                    tri!(PacketWriter::write_page(&mut self.wtr, serial, pg, false));
+                    PacketWriter::write_page(&mut self.wtr, serial, pg, false)?;
                 } else {
                     // We have to write a page end, and it's the very last
                     // we need to write
-                    tri!(PacketWriter::write_page(
-                        &mut self.wtr,
-                        serial,
-                        pg,
-                        is_end_stream
-                    ));
+                    PacketWriter::write_page(&mut self.wtr, serial, pg, is_end_stream)?;
                     // Not actually required
                     // (it is always None except if we set it to Some directly
                     // before we call write_page)
@@ -185,12 +180,7 @@ impl<T: io::Write> PacketWriter<T> {
         }
         if (inf != PacketWriteEndInfo::NormalPacket) && !at_page_end {
             // Write a page end
-            tri!(PacketWriter::write_page(
-                &mut self.wtr,
-                serial,
-                pg,
-                is_end_stream
-            ));
+            PacketWriter::write_page(&mut self.wtr, serial, pg, is_end_stream)?;
 
             pg.pck_last_overflow_idx = None;
 
@@ -210,7 +200,7 @@ impl<T: io::Write> PacketWriter<T> {
         {
             // The page header with everything but the lacing values:
             let mut hdr_cur = Cursor::new(Vec::with_capacity(27));
-            tri!(hdr_cur.write_all(&[0x4f, 0x67, 0x67, 0x53, 0x00]));
+            hdr_cur.write_all(&[0x4f, 0x67, 0x67, 0x53, 0x00])?;
             let mut flags: u8 = 0;
             if pg.pck_last_overflow_idx.is_some() {
                 flags |= 0x01;
@@ -222,7 +212,7 @@ impl<T: io::Write> PacketWriter<T> {
                 flags |= 0x04;
             }
 
-            tri!(hdr_cur.write_u8(flags));
+            hdr_cur.write_u8(flags)?;
 
             let pck_data = &pg.cur_pg_data;
 
@@ -233,14 +223,14 @@ impl<T: io::Write> PacketWriter<T> {
                 }
             }
 
-            tri!(hdr_cur.write_u64::<LittleEndian>(last_finishing_pck_absgp));
-            tri!(hdr_cur.write_u32::<LittleEndian>(serial));
-            tri!(hdr_cur.write_u32::<LittleEndian>(pg.sequence_num));
+            hdr_cur.write_u64::<LittleEndian>(last_finishing_pck_absgp)?;
+            hdr_cur.write_u32::<LittleEndian>(serial)?;
+            hdr_cur.write_u32::<LittleEndian>(pg.sequence_num)?;
 
             // checksum, calculated later on :)
-            tri!(hdr_cur.write_u32::<LittleEndian>(0));
+            hdr_cur.write_u32::<LittleEndian>(0)?;
 
-            tri!(hdr_cur.write_u8(pg.segment_cnt));
+            hdr_cur.write_u8(pg.segment_cnt)?;
 
             let pg_lacing = &pg.cur_pg_lacing[0..pg.segment_cnt as usize];
 
@@ -267,12 +257,12 @@ impl<T: io::Write> PacketWriter<T> {
             // Don't do excessive checking here (that the seek
             // succeeded & we are at the right pos now).
             // It's hopefully not required.
-            tri!(hdr_cur.seek(SeekFrom::Start(22)));
-            tri!(hdr_cur.write_u32::<LittleEndian>(hash_calculated));
+            hdr_cur.seek(SeekFrom::Start(22))?;
+            hdr_cur.write_u32::<LittleEndian>(hash_calculated)?;
 
             // Now all is done, write the stuff!
-            tri!(wtr.write_all(hdr_cur.get_ref()));
-            tri!(wtr.write_all(pg_lacing));
+            wtr.write_all(hdr_cur.get_ref())?;
+            wtr.write_all(pg_lacing)?;
             for (idx, &(ref pck, _)) in pck_data.iter().enumerate() {
                 let mut start: usize = 0;
                 if idx == 0 {
@@ -286,7 +276,7 @@ impl<T: io::Write> PacketWriter<T> {
                         end = idx;
                     }
                 }
-                tri!(wtr.write_all(&pck[start..end]));
+                wtr.write_all(&pck[start..end])?;
             }
         }
 
