@@ -11,7 +11,6 @@ Reading logic
 */
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use crc::vorbis_crc32_update;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -21,7 +20,9 @@ use std::io;
 use std::io::Seek;
 use std::io::{Cursor, Error, ErrorKind, Read, SeekFrom, Write};
 use std::mem::replace;
-use Packet;
+
+use crate::crc::vorbis_crc32_update;
+use crate::Packet;
 
 /// Error that can be raised when decoding an Ogg transport.
 #[derive(Debug)]

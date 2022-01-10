@@ -11,10 +11,11 @@ Writing logic
 */
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use crc::vorbis_crc32_update;
 use std::collections::HashMap;
 use std::io::{self, Cursor, Seek, SeekFrom, Write};
 use std::result;
+
+use crate::crc::vorbis_crc32_update;
 
 /// Ogg version of the `std::io::Result` type.
 ///

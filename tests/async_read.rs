@@ -8,11 +8,6 @@
 
 #![cfg(feature = "async")]
 
-extern crate futures;
-extern crate ogg;
-extern crate rand;
-extern crate tokio_io;
-
 use futures::Stream;
 use ogg::reading::async_api::PacketReader;
 use ogg::{PacketWriteEndInfo, PacketWriter};
