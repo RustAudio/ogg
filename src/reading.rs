@@ -1035,14 +1035,17 @@ fn seek_before_end<T: io::Read + io::Seek>(mut rdr: T, offs: u64) -> Result<u64,
 Asyncronous ogg decoding
 */
 pub mod async_api {
-    #![allow(deprecated)]
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
 
     use super::*;
     use bytes::BytesMut;
-    use futures::stream::Stream;
-    use futures::{Async, Poll};
-    use tokio_io::codec::{Decoder, FramedRead};
-    use tokio_io::AsyncRead;
+    use futures_util::{ready, stream::Stream};
+    use pin_project::pin_project;
+    use tokio::io::AsyncRead;
+    use tokio_util::codec::{Decoder, FramedRead};
 
     enum PageDecodeState {
         Head,
@@ -1125,15 +1128,20 @@ pub mod async_api {
     /**
     Async packet reading functionality.
     */
+    #[pin_project]
     pub struct PacketReader<T>
     where
         T: AsyncRead,
     {
         base_pck_rdr: BasePacketReader,
+        #[pin]
         pg_rd: FramedRead<T, PageDecoder>,
     }
 
-    impl<T: AsyncRead> PacketReader<T> {
+    impl<T> PacketReader<T>
+    where
+        T: AsyncRead,
+    {
         pub fn new(inner: T) -> Self {
             PacketReader {
                 base_pck_rdr: BasePacketReader::new(),
@@ -1142,22 +1150,26 @@ pub mod async_api {
         }
     }
 
-    impl<T: AsyncRead> Stream for PacketReader<T> {
-        type Item = Packet;
-        type Error = OggReadError;
+    impl<T> Stream for PacketReader<T>
+    where
+        T: AsyncRead,
+    {
+        type Item = Result<Packet, OggReadError>;
 
-        fn poll(&mut self) -> Poll<Option<Packet>, OggReadError> {
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let mut this = self.project();
+
             // Read pages until we got a valid entire packet
             // (packets may span multiple pages, so reading one page
             // doesn't always suffice to give us a valid packet)
             loop {
-                if let Some(pck) = self.base_pck_rdr.read_packet() {
-                    return Ok(Async::Ready(Some(pck)));
+                if let Some(pck) = this.base_pck_rdr.read_packet() {
+                    return Poll::Ready(Some(Ok(pck)));
                 }
-                let page = try_ready!(self.pg_rd.poll());
+                let page = ready!(this.pg_rd.as_mut().poll_next(cx)?);
                 match page {
-                    Some(page) => self.base_pck_rdr.push_page(page)?,
-                    None => return Ok(Async::Ready(None)),
+                    Some(page) => this.base_pck_rdr.push_page(page)?,
+                    None => return Poll::Ready(None),
                 }
             }
         }

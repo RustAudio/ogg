@@ -14,13 +14,16 @@ readme = "README.md"
 name = "ogg"
 
 [dependencies]
-byteorder = "1.0"
-tokio-io = { version = "0.1", optional = true }
-futures = { version = "0.1", optional = true }
-bytes = { version = "0.4", optional = true }
+byteorder = "1"
+tokio = { version = "1", optional = true }
+tokio-util = { version = "0.6", features = ["codec"], optional = true }
+futures-util = { version = "0.3", features = ["io"], optional = true }
+bytes = { version = "1", optional = true }
+pin-project = { version = "1", optional = true }
 
 [dev-dependencies]
 rand = "0.8"
+tokio = { version = "1", features = ["full"] }
 
 [features]
-async = ["tokio-io", "futures", "bytes"]
+async = ["tokio", "tokio-util", "futures-util", "bytes", "pin-project"]
