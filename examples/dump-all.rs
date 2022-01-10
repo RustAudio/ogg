@@ -19,7 +19,6 @@ fn main() {
     }
 }
 
-#[allow(dead_code)]
 fn print_u8_slice(arr: &[u8]) {
     if arr.len() <= 4 {
         for a in arr {

@@ -286,6 +286,7 @@ macro_rules! test_seek_r {
 		$r.seek_absgp(None, $absgp).unwrap();
 		// Then go to the searched packet inside the page
 		// We know that all groups of three packets form one.
+        #[allow(clippy::reversed_empty_ranges)]
 		for _ in 0 .. ($absgp % 3) $o $m {
 			$r.read_packet().unwrap().unwrap();
 		}

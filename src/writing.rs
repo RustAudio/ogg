@@ -89,10 +89,10 @@ pub enum PacketWriteEndInfo {
 
 impl<T: io::Write> PacketWriter<T> {
     pub fn new(wtr: T) -> Self {
-        return PacketWriter {
+        PacketWriter {
             wtr,
             page_vals: HashMap::new(),
-        };
+        }
     }
     pub fn into_inner(self) -> T {
         self.wtr
@@ -242,11 +242,9 @@ impl<T: io::Write> PacketWriter<T> {
 
             tri!(hdr_cur.write_u8(pg.segment_cnt));
 
-            let mut hash_calculated: u32;
-
             let pg_lacing = &pg.cur_pg_lacing[0..pg.segment_cnt as usize];
 
-            hash_calculated = vorbis_crc32_update(0, hdr_cur.get_ref());
+            let mut hash_calculated = vorbis_crc32_update(0, hdr_cur.get_ref());
             hash_calculated = vorbis_crc32_update(hash_calculated, pg_lacing);
 
             for (idx, &(ref pck, _)) in pck_data.iter().enumerate() {
@@ -311,7 +309,7 @@ impl<T: io::Write> PacketWriter<T> {
         pg.pck_last_overflow_idx = pg.pck_this_overflow_idx;
         pg.pck_this_overflow_idx = None;
 
-        return Ok(());
+        Ok(())
     }
 }
 

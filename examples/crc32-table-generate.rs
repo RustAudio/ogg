@@ -15,13 +15,13 @@ fn get_tbl_elem(idx: u32) -> u32 {
     for _ in 0..8 {
         r = (r << 1) ^ (-(((r >> 31) & 1) as i32) as u32 & 0x04c11db7);
     }
-    return r;
+    r
 }
 
 fn print_crc32_table() {
     let mut lup_arr: [u32; 0x100] = [0; 0x100];
-    for i in 0..0x100 {
-        lup_arr[i] = get_tbl_elem(i as u32);
+    for (i, lup_el) in lup_arr.iter_mut().enumerate() {
+        *lup_el = get_tbl_elem(i as u32);
     }
     print_slice("CRC_LOOKUP_ARRAY", &lup_arr);
 }
