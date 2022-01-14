@@ -8,7 +8,7 @@ jobs:
     strategy:
       matrix:
         os: [macOS-latest, ubuntu-latest, windows-latest]
-        toolchain: [stable, beta, 1.27.2]
+        toolchain: [stable, beta, 1.56.1]
 
     runs-on: ${{ matrix.os }}
 
@@ -20,12 +20,12 @@ jobs:
         toolchain: ${{ matrix.toolchain }}
         override: true
     - name: Run no-default-features builds
-      if: matrix.toolchain != '1.27.2'
+      if: matrix.toolchain != '1.56.1'
       run: |
         cargo test --verbose --no-default-features
         cargo doc --verbose --no-default-features
     - name: Run no-default-features builds (forbidding warnings)
-      if: matrix.toolchain == '1.27.2'
+      if: matrix.toolchain == '1.56.1'
       env:
         RUSTFLAGS: -D warnings
       run: |
@@ -35,7 +35,7 @@ jobs:
         cargo test --verbose --no-default-features
         cargo doc --verbose --no-default-features
     - name: Run all-features builds
-      if: matrix.toolchain != '1.27.2'
+      if: matrix.toolchain != '1.56.1'
       run: |
         cargo test --verbose --all-features
         cargo doc --verbose --all-features
