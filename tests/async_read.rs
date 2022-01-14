@@ -8,64 +8,46 @@
 
 #![cfg(feature = "async")]
 
-extern crate ogg;
-extern crate rand;
-extern crate tokio_io;
-extern crate futures;
-
 use std::io;
 use ogg::{PacketWriter, PacketWriteEndInfo};
 use ogg::reading::async_api::PacketReader;
 use std::io::{Cursor, Seek, SeekFrom};
-use tokio_io::AsyncRead;
-use futures::Stream;
+use std::pin::Pin;
+use std::task::{Poll, Context};
+use pin_project::pin_project;
+use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
+use futures_util::TryStreamExt;
 
-struct RandomWouldBlock<T>(T);
-impl <T: io::Read> io::Read for RandomWouldBlock<T> {
-	fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+#[pin_project]
+struct RandomWouldBlock<T>(#[pin] T);
+impl<T :AsyncRead> AsyncRead for RandomWouldBlock<T> {
+	fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
+			-> Poll<io::Result<()>> {
 		if rand::random() {
-			return Err(io::Error::new(io::ErrorKind::WouldBlock, "would block"));
+			cx.waker().wake_by_ref();
+			return Poll::Pending;
 		}
-		self.0.read(buf)
+
+		self.project().0.poll_read(cx, buf)
 	}
 }
 
-impl <T :io::Read> AsyncRead for RandomWouldBlock<T> {}
+impl<T :AsyncSeek> AsyncSeek for RandomWouldBlock<T> {
+	fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> io::Result<()> {
+		self.project().0.start_seek(position)
+	}
 
-impl <T: io::Seek> io::Seek for RandomWouldBlock<T> {
-	fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+	fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
 		if rand::random() {
-			return Err(io::Error::new(io::ErrorKind::WouldBlock, "would block"));
+			cx.waker().wake_by_ref();
+			return Poll::Pending;
 		}
-		self.0.seek(pos)
+
+		self.project().0.poll_complete(cx)
 	}
 }
 
-macro_rules! test_arr_eq {
-	($a_arr:expr, $b_arr:expr) => {
-		for i in 0 .. $b_arr.len() {
-			if $a_arr[i] != $b_arr[i] {
-				panic!("Mismatch of values at index {}: {} {}", i, $a_arr[i], $b_arr[i]);
-			}
-		}
-	}
-}
-
-macro_rules! cont_try {
-	($e:expr) => {
-		(|| {
-			loop {
-				match $e {
-					Ok(futures::Async::Ready(v)) => return Ok(v),
-					Ok(_) => (),
-					Err(e) => return Err(e),
-				}
-			}
-		}) ()
-	}
-}
-
-fn test_ogg_random_would_block_run() {
+async fn test_ogg_random_would_block_run() {
 	let mut c = Cursor::new(Vec::new());
 	let test_arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
@@ -83,11 +65,11 @@ fn test_ogg_random_would_block_run() {
 	{
 		let mut rwd = RandomWouldBlock(&mut c);
 		let mut r = PacketReader::new(&mut rwd);
-		let p1 = cont_try!(r.poll()).unwrap().unwrap();
+		let p1 = r.try_next().await.unwrap().unwrap();
 		assert_eq!(test_arr, *p1.data);
-		let p2 = cont_try!(r.poll()).unwrap().unwrap();
+		let p2 = r.try_next().await.unwrap().unwrap();
 		assert_eq!(test_arr_2, *p2.data);
-		let p3 = cont_try!(r.poll()).unwrap().unwrap();
+		let p3 = r.try_next().await.unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
 	}
 
@@ -112,12 +94,12 @@ fn test_ogg_random_would_block_run() {
 	{
 		let mut rwd = RandomWouldBlock(&mut c);
 		let mut r = PacketReader::new(&mut rwd);
-		let p1 = cont_try!(r.poll()).unwrap().unwrap();
-		assert_eq!(test_arr, *p1.data);
-		let p2 = cont_try!(r.poll()).unwrap().unwrap();
-		test_arr_eq!(test_arr_2, *p2.data);
-		let p3 = cont_try!(r.poll()).unwrap().unwrap();
-		assert_eq!(test_arr_3, *p3.data);
+		let p1 = r.try_next().await.unwrap().unwrap();
+		assert_eq!(test_arr, p1.data.as_slice());
+		let p2 = r.try_next().await.unwrap().unwrap();
+		assert_eq!(test_arr_2, p2.data.as_slice());
+		let p3 = r.try_next().await.unwrap().unwrap();
+		assert_eq!(test_arr_3, p3.data.as_slice());
 	}
 
 	// Now test packets spanning multiple pages
@@ -139,17 +121,17 @@ fn test_ogg_random_would_block_run() {
 	{
 		let mut rwd = RandomWouldBlock(&mut c);
 		let mut r = PacketReader::new(&mut rwd);
-		let p2 = cont_try!(r.poll()).unwrap().unwrap();
-		test_arr_eq!(test_arr_2, *p2.data);
-		let p3 = cont_try!(r.poll()).unwrap().unwrap();
-		assert_eq!(test_arr_3, *p3.data);
+		let p2 = r.try_next().await.unwrap().unwrap();
+		assert_eq!(test_arr_2, p2.data.as_slice());
+		let p3 = r.try_next().await.unwrap().unwrap();
+		assert_eq!(test_arr_3, p3.data.as_slice());
 	}
 }
 
-#[test]
-fn test_ogg_random_would_block() {
+#[tokio::test]
+async fn test_ogg_random_would_block() {
 	for i in 0 .. 100 {
 		println!("Run {}", i);
-		test_ogg_random_would_block_run();
+		test_ogg_random_would_block_run().await;
 	}
 }
