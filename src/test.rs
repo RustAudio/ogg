@@ -31,9 +31,9 @@ fn test_packet_rw() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
-		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(&test_arr[..], 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(&test_arr_2[..], 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(&test_arr_3[..], 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -59,9 +59,9 @@ fn test_packet_rw() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
-		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(&test_arr[..], 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(&test_arr_2[..], 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(&test_arr_3[..], 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -86,8 +86,8 @@ fn test_packet_rw() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(&test_arr_2[..], 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(&test_arr_3[..], 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -112,10 +112,10 @@ fn test_page_end_after_first_packet() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Box::new(test_arr), 0xdeadb33f,
+		w.write_packet(&test_arr[..], 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 0).unwrap();
-		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(&test_arr_2[..], 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(&test_arr_3[..], 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -153,7 +153,7 @@ fn test_packet_write() {
 
 	{
 		let mut w = PacketWriter::new(&mut c);
-		w.write_packet(Box::new(test_arr_in), 0x5b90a374,
+		w.write_packet(&test_arr_in[..], 0x5b90a374,
 			PacketWriteEndInfo::EndPage, 0).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -175,11 +175,9 @@ fn test_write_large() {
 	// bytes of payload packet data.
 	// A length of 70_00 will guaranteed create a page break.
 	let test_arr = gen_pck(1234, 70_000 / 4);
-	{
-		let mut w = PacketWriter::new(&mut c);
-		w.write_packet(test_arr.clone(), 0x5b90a374,
-			PacketWriteEndInfo::EndPage, 0).unwrap();
-	}
+	let mut w = PacketWriter::new(&mut c);
+	w.write_packet(&test_arr, 0x5b90a374,
+		PacketWriteEndInfo::EndPage, 0).unwrap();
 	//print_u8_slice(c.get_ref());
 
 	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
@@ -219,7 +217,7 @@ impl XorShift {
 	}
 }
 
-fn gen_pck(seed :u32, len_d_four :usize) -> Box<[u8]> {
+fn gen_pck(seed :u32, len_d_four :usize) -> Vec<u8> {
 	let mut ret = Vec::with_capacity(len_d_four * 4);
 	let mut xs = XorShift::from_two((seed, len_d_four as u32));
 	if len_d_four > 0 {
@@ -235,7 +233,7 @@ fn gen_pck(seed :u32, len_d_four :usize) -> Box<[u8]> {
 		ret.push((v >> 16) as u8);
 		ret.push((v >> 24) as u8);
 	}
-	ret.into_boxed_slice()
+	ret
 }
 
 macro_rules! test_seek_r {
@@ -470,9 +468,9 @@ fn test_issue_14() {
 		c.write_all(&[b'O']).unwrap();
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
-		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(&test_arr[..], 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(&test_arr_2[..], 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(&test_arr_3[..], 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -498,9 +496,9 @@ fn test_issue_14() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Box::new(test_arr), 0xdeadb33f, np, 0).unwrap();
-		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(&test_arr[..], 0xdeadb33f, np, 0).unwrap();
+		w.write_packet(&test_arr_2[..], 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(&test_arr_3[..], 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());
@@ -525,8 +523,8 @@ fn test_issue_14() {
 	{
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
-		w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-		w.write_packet(Box::new(test_arr_3), 0xdeadb33f,
+		w.write_packet(&test_arr_2[..], 0xdeadb33f, np, 1).unwrap();
+		w.write_packet(&test_arr_3[..], 0xdeadb33f,
 			PacketWriteEndInfo::EndPage, 2).unwrap();
 	}
 	//print_u8_slice(c.get_ref());

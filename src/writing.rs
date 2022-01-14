@@ -10,6 +10,7 @@
 Writing logic
 */
 
+use std::borrow::Cow;
 use std::result;
 use std::io::{self, Cursor, Write, Seek, SeekFrom};
 use byteorder::{WriteBytesExt, LittleEndian};
@@ -29,13 +30,13 @@ Writer for packets into an Ogg stream.
 Note that the functionality of this struct isn't as well tested as for
 the `PacketReader` struct.
 */
-pub struct PacketWriter<T :io::Write> {
+pub struct PacketWriter<'writer, T :io::Write> {
 	wtr :T,
 
-	page_vals :HashMap<u32, CurrentPageValues>,
+	page_vals :HashMap<u32, CurrentPageValues<'writer>>,
 }
 
-struct CurrentPageValues {
+struct CurrentPageValues<'writer> {
 	/// `true` if this page is the first one in the logical bitstream
 	first_page :bool,
 	/// Page counter of the current page
@@ -46,7 +47,7 @@ struct CurrentPageValues {
 	segment_cnt :u8,
 	cur_pg_lacing :[u8; 255],
 	/// The data and the absgp's of the packets
-	cur_pg_data :Vec<(Box<[u8]>, u64)>,
+	cur_pg_data :Vec<(Cow<'writer, [u8]>, u64)>,
 
 	/// Some(offs), if the last packet
 	/// couldn't make it fully into this page, and
@@ -89,7 +90,7 @@ pub enum PacketWriteEndInfo {
 	EndStream,
 }
 
-impl <T :io::Write> PacketWriter<T> {
+impl <'writer, T :io::Write> PacketWriter<'writer, T> {
 	pub fn new(wtr :T) -> Self {
 		return PacketWriter {
 			wtr,
@@ -118,7 +119,8 @@ impl <T :io::Write> PacketWriter<T> {
 	/// Write a packet
 	///
 	///
-	pub fn write_packet(&mut self, pck_cont :Box<[u8]>, serial :u32,
+	pub fn write_packet<P: Into<Cow<'writer, [u8]>>>(&mut self, pck_cont :P,
+			serial :u32,
 			inf :PacketWriteEndInfo,
 			/* TODO find a better way to design the API around
 				passing the absgp to the underlying implementation.
@@ -140,6 +142,7 @@ impl <T :io::Write> PacketWriter<T> {
 			}
 		);
 
+		let pck_cont = pck_cont.into();
 		let cont_len = pck_cont.len();
 		pg.cur_pg_data.push((pck_cont, absgp));
 
@@ -297,7 +300,7 @@ impl <T :io::Write> PacketWriter<T> {
 	}
 }
 
-impl<T :io::Seek + io::Write> PacketWriter<T> {
+impl<T :io::Seek + io::Write> PacketWriter<'_, T> {
 	pub fn get_current_offs(&mut self) -> Result<u64, io::Error> {
 		self.wtr.seek(SeekFrom::Current(0))
 	}
@@ -321,13 +324,13 @@ fn test_recapture() {
 		let ep = PacketWriteEndInfo::EndPage;
 		{
 			let mut w = PacketWriter::new(&mut c);
-			w.write_packet(Box::new(test_arr), 0xdeadb33f, ep, 0).unwrap();
+			w.write_packet(&test_arr[..], 0xdeadb33f, ep, 0).unwrap();
 
 			// Now, after the end of the page, put in some noise.
 			w.wtr.write_all(&[0; 38]).unwrap();
 
-			w.write_packet(Box::new(test_arr_2), 0xdeadb33f, np, 1).unwrap();
-			w.write_packet(Box::new(test_arr_3), 0xdeadb33f, ep, 2).unwrap();
+			w.write_packet(&test_arr_2[..], 0xdeadb33f, np, 1).unwrap();
+			w.write_packet(&test_arr_3[..], 0xdeadb33f, ep, 2).unwrap();
 		}
 	}
 	//print_u8_slice(c.get_ref());
