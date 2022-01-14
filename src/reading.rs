@@ -1029,14 +1029,15 @@ fn seek_before_end<T :io::Read + io::Seek>(mut rdr :T,
 Asyncronous ogg decoding
 */
 pub mod async_api {
-	#![allow(deprecated)]
+	use std::pin::Pin;
+	use std::task::{Context, Poll};
 
 	use super::*;
-	use tokio_io::AsyncRead;
-	use tokio_io::codec::{Decoder, FramedRead};
-	use futures::stream::Stream;
-	use futures::{Async, Poll};
 	use bytes::BytesMut;
+	use futures_util::{ready, Stream};
+	use pin_project::pin_project;
+	use tokio::io::AsyncRead;
+	use tokio_util::codec::{Decoder, FramedRead};
 
 	enum PageDecodeState {
 		Head,
@@ -1121,8 +1122,10 @@ pub mod async_api {
 	/**
 	Async packet reading functionality.
 	*/
+	#[pin_project]
 	pub struct PacketReader<T> where T :AsyncRead {
 		base_pck_rdr :BasePacketReader,
+		#[pin]
 		pg_rd :FramedRead<T, PageDecoder>,
 	}
 
@@ -1136,22 +1139,26 @@ pub mod async_api {
 	}
 
 	impl<T :AsyncRead> Stream for PacketReader<T> {
-		type Item = Packet;
-		type Error = OggReadError;
+		type Item = Result<Packet, OggReadError>;
 
-		fn poll(&mut self) -> Poll<Option<Packet>, OggReadError> {
+		fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+			let mut this = self.project();
 			// Read pages until we got a valid entire packet
 			// (packets may span multiple pages, so reading one page
 			// doesn't always suffice to give us a valid packet)
 			loop {
-				if let Some(pck) = self.base_pck_rdr.read_packet() {
-					return Ok(Async::Ready(Some(pck)));
+				if let Some(pck) = this.base_pck_rdr.read_packet() {
+					return Poll::Ready(Some(Ok(pck)));
 				}
-				let page = try_ready!(self.pg_rd.poll());
-				match page {
-					Some(page) => tri!(self.base_pck_rdr.push_page(page)),
-					None => return Ok(Async::Ready(None)),
-				}
+				let page = match ready!(this.pg_rd.as_mut().poll_next(cx)) {
+					Some(Ok(page)) => page,
+					Some(Err(err)) => return Poll::Ready(Some(Err(err))),
+					None => return Poll::Ready(None),
+				};
+				match this.base_pck_rdr.push_page(page) {
+					Ok(_) => {},
+					Err(err) => return Poll::Ready(Some(Err(err))),
+				};
 			}
 		}
 	}
