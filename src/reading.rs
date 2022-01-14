@@ -661,6 +661,11 @@ impl UntilPageHeaderReader {
 		let start_fill = 27 - needed;
 		(&mut self.ret_buf[start_fill .. copy_amount + start_fill])
 				.copy_from_slice(&fnd_buf[0 .. copy_amount]);
+		// Comparison chain operation via cmp can be slower,
+		// and also requires an import. It's a questionable idea
+		// to suggest it. TODO: once open ranges are stable in
+		// match, use them.
+		#[allow(clippy::comparison_chain)]
 		if fnd_buf.len() == needed {
 			// Capture pattern found!
 			self.mode = Found;

@@ -11,6 +11,7 @@
 #![allow(clippy::needless_return)]
 #![allow(clippy::nonminimal_bool)]
 #![allow(clippy::tabs_in_doc_comments)]
+#![allow(clippy::new_without_default)]
 
 /*!
 Ogg container decoder and encoder
