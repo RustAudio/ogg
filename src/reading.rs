@@ -198,23 +198,23 @@ impl PageParser {
 			tri!(Err(OggReadError::InvalidStreamStructVer(stream_structure_version)));
 		}
 		let header_type_flag = header_rdr.read_u8().unwrap();
-		let stream_serial;
+		let absgp = header_rdr.read_u64::<LittleEndian>().unwrap();
+		let stream_serial = header_rdr.read_u32::<LittleEndian>().unwrap();
+		let sequence_num = header_rdr.read_u32::<LittleEndian>().unwrap();
+		let checksum = header_rdr.read_u32::<LittleEndian>().unwrap();
 
 		Ok((PageParser {
 			bi : PageBaseInfo {
 				starts_with_continued : header_type_flag & 0x01u8 != 0,
 				first_page : header_type_flag & 0x02u8 != 0,
 				last_page : header_type_flag & 0x04u8 != 0,
-				absgp : header_rdr.read_u64::<LittleEndian>().unwrap(),
-				sequence_num : {
-					stream_serial = header_rdr.read_u32::<LittleEndian>().unwrap();
-					header_rdr.read_u32::<LittleEndian>().unwrap()
-				},
+				absgp,
+				sequence_num,
 				packet_positions : Vec::new(),
 				ends_with_continued : false,
 			},
 			stream_serial,
-			checksum : header_rdr.read_u32::<LittleEndian>().unwrap(),
+			checksum,
 			header_buf,
 			packet_count : 0,
 			segments_or_packets_buf :Vec::new(),
