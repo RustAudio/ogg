@@ -9,6 +9,7 @@ keywords = ["ogg", "decoder", "encoder", "xiph"]
 documentation = "https://docs.rs/ogg/0.8.0"
 repository = "https://github.com/RustAudio/ogg"
 readme = "README.md"
+rust-version = "1.56.0"
 
 [lib]
 name = "ogg"
