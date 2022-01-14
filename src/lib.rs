@@ -45,8 +45,8 @@ mod crc;
 pub mod reading;
 pub mod writing;
 
-pub use writing::{PacketWriter, PacketWriteEndInfo};
-pub use reading::{PacketReader, OggReadError};
+pub use crate::writing::{PacketWriter, PacketWriteEndInfo};
+pub use crate::reading::{PacketReader, OggReadError};
 
 /**
 Ogg packet representation.

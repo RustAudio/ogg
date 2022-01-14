@@ -14,7 +14,7 @@ use std::result;
 use std::io::{self, Cursor, Write, Seek, SeekFrom};
 use byteorder::{WriteBytesExt, LittleEndian};
 use std::collections::HashMap;
-use crc::vorbis_crc32_update;
+use crate::crc::vorbis_crc32_update;
 
 
 /// Ogg version of the `std::io::Result` type.

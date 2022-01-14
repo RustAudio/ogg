@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::{Display, Formatter, Error as FmtError};
 use std::mem::replace;
-use crc::vorbis_crc32_update;
-use Packet;
+use crate::crc::vorbis_crc32_update;
+use crate::Packet;
 use std::io::Seek;
 
 /// Error that can be raised when decoding an Ogg transport.
