@@ -19,15 +19,9 @@ Ogg container decoder and encoder
 The most interesting structures for in this
 mod are `PacketReader` and `PacketWriter`.
 */
-
-extern crate byteorder;
-#[cfg(feature = "async")]
-extern crate tokio_io;
 #[cfg(feature = "async")]
 #[macro_use]
 extern crate futures;
-#[cfg(feature = "async")]
-extern crate bytes;
 
 #[cfg(test)]
 mod test;
