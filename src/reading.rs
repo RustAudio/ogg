@@ -33,7 +33,7 @@ pub enum OggReadError {
 	InvalidStreamStructVer(u8),
 	/// Mismatch of the hash value with (expected, calculated) value.
 	HashMismatch(u32, u32),
-	/// I/O error occured.
+	/// I/O error occurred.
 	ReadError(io::Error),
 	/// Some constraint required by the spec was not met.
 	InvalidData,
@@ -172,7 +172,7 @@ pub struct PageParser {
 	checksum :u32,
 	header_buf: [u8; 27],
 	/// Number of packet ending segments
-	packet_count :u16, // Gets populated gafter segments have been parsed
+	packet_count :u16, // Gets populated after segments have been parsed
 	/// after segments have been parsed, this contains the segments buffer,
 	/// after the packet data have been read, this contains the packets buffer.
 	segments_or_packets_buf :Vec<u8>,
@@ -331,7 +331,7 @@ pub struct BasePacketReader {
 	/// None if there is no such stream and one has to read a new page.
 	stream_with_stuff :Option<u32>,
 
-	// Bool that is set to true when a seek of the stream has occured.
+	// Bool that is set to true when a seek of the stream has occurred.
 	// This helps validator code to decide whether to accept certain strange data.
 	has_seeked :bool,
 }
@@ -382,7 +382,7 @@ impl BasePacketReader {
 			cont
 		} else {
 			let mut cont :Vec<u8> = Vec::with_capacity(len as usize);
-			// TODO The copy below is totally unneccessary. It is only needed so that we don't have to carry around the old Vec's.
+			// TODO The copy below is totally unnecessary. It is only needed so that we don't have to carry around the old Vec's.
 			// TODO get something like the shared_slice crate for RefCells, so that we can also have mutable data, shared through
 			// slices.
 			let cont_slice :&[u8] = &pg_info.page_body[offs as usize .. (offs + len) as usize];
@@ -453,14 +453,14 @@ impl BasePacketReader {
 					}
 				} else if pg_prs.bi.starts_with_continued {
 					// Remember the packet at the end so that it can be glued together once
-					// we encounter the next segment with length < 255 (doesnt have to be in this page)
+					// we encounter the next segment with length < 255 (doesn't have to be in this page)
 					let (offs, len) = inf.bi.packet_positions[inf.packet_idx as usize];
 					if len as usize != inf.page_body.len() {
 						let mut tmp = Vec::with_capacity(len as usize);
 						tmp.write_all(&inf.page_body[offs as usize .. (offs + len) as usize]).unwrap();
 						inf.last_overlap_pck.push(tmp);
 					} else {
-						// Little optimisation: don't copy if not neccessary
+						// Little optimisation: don't copy if not necessary
 						inf.last_overlap_pck.push(replace(&mut inf.page_body, vec![0;0]));
 					}
 
@@ -481,7 +481,7 @@ impl BasePacketReader {
 					}
 					if pg_prs.bi.starts_with_continued {
 						// Ignore the continued packet's content.
-						// This is a normal occurence if we have just seeked.
+						// This is a normal occurrence if we have just seeked.
 						pg_prs.bi.packet_positions.remove(0);
 						if pg_prs.packet_count != 0 {
 							// Decrease packet count by one. Normal case.
@@ -587,7 +587,7 @@ impl UntilPageHeaderReader {
 			-> Result<UntilPageHeaderResult, OggReadError> {
 		use self::UntilPageHeaderReaderMode::*;
 		use self::UntilPageHeaderResult as Res;
-		// The array's size is freely choseable, but must be > 27,
+		// The array's size is freely choosable, but must be > 27,
 		// and must well fit into an i32 (needs to be stored in SeekNeeded)
 		let mut buf :[u8; 1024] = [0; 1024];
 
@@ -1026,7 +1026,7 @@ fn seek_before_end<T :io::Read + io::Seek>(mut rdr :T,
 
 #[cfg(feature = "async")]
 /**
-Asyncronous ogg decoding
+Asynchronous ogg decoding
 */
 pub mod async_api {
 	use std::pin::Pin;
