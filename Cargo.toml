@@ -16,9 +16,10 @@ name = "ogg"
 
 [dependencies]
 byteorder = "1.0"
+futures-core = { version = "0.3", optional = true }
+futures-io = { version = "0.3", optional = true }
 tokio = { version = "1", optional = true }
-tokio-util = { version = "0.6", features = ["codec"], optional = true }
-futures-util = { version = "0.3", features = ["io"], optional = true }
+tokio-util = { version = "0.6", features = ["codec", "compat"], optional = true }
 bytes = { version = "1", optional = true }
 pin-project = { version = "1", optional = true }
 
@@ -27,7 +28,7 @@ rand = "0.8"
 tokio = { version = "1", features = ["full"] }
 
 [features]
-async = ["tokio", "tokio-util", "futures-util", "bytes", "pin-project"]
+async = ["futures-core", "futures-io", "tokio", "tokio-util", "bytes", "pin-project"]
 
 [package.metadata.docs.rs]
 all-features = true
