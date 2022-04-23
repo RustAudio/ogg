@@ -26,6 +26,7 @@ pin-project = { version = "1", optional = true }
 [dev-dependencies]
 rand = "0.8"
 tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
 
 [features]
 async = ["futures-core", "futures-io", "tokio", "tokio-util", "bytes", "pin-project"]
