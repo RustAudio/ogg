@@ -13,6 +13,8 @@
 #![allow(clippy::tabs_in_doc_comments)]
 #![allow(clippy::new_without_default)]
 
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+
 /*!
 Ogg container decoder and encoder
 

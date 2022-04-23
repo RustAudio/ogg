@@ -1,8 +1,6 @@
-## Ogg
+## Ogg [![docs.rs documentation](https://img.shields.io/docsrs/ogg?label=docs.rs)](https://docs.rs/ogg/latest)
 
 An Ogg decoder and encoder. Implements the [xiph.org Ogg spec](https://www.xiph.org/vorbis/doc/framing.html) in pure Rust.
-
-[Documentation](https://docs.rs/ogg/0.8.0).
 
 If the `async` feature is disabled, Version 1.56.1 of Rust is the minimum supported one.
 
