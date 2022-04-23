@@ -1033,11 +1033,13 @@ pub mod async_api {
 	use std::task::{Context, Poll};
 
 	use super::*;
+	use futures_core::{ready, Stream};
+	use futures_io::AsyncRead as FuturesAsyncRead;
+	use tokio::io::AsyncRead as TokioAsyncRead;
 	use bytes::BytesMut;
-	use futures_util::{ready, Stream};
 	use pin_project::pin_project;
-	use tokio::io::AsyncRead;
 	use tokio_util::codec::{Decoder, FramedRead};
+	use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt};
 
 	enum PageDecodeState {
 		Head,
@@ -1123,13 +1125,18 @@ pub mod async_api {
 	Async packet reading functionality.
 	*/
 	#[pin_project]
-	pub struct PacketReader<T> where T :AsyncRead {
+	pub struct PacketReader<T> where T :TokioAsyncRead {
 		base_pck_rdr :BasePacketReader,
 		#[pin]
 		pg_rd :FramedRead<T, PageDecoder>,
 	}
 
-	impl<T :AsyncRead> PacketReader<T> {
+	impl<T :TokioAsyncRead> PacketReader<T> {
+		/// Wraps the specified Tokio runtime `AsyncRead` into an Ogg packet
+		/// reader.
+		///
+		/// This is the recommended constructor when using the Tokio runtime
+		/// types.
 		pub fn new(inner :T) -> Self {
 			PacketReader {
 				base_pck_rdr : BasePacketReader::new(),
@@ -1138,7 +1145,21 @@ pub mod async_api {
 		}
 	}
 
-	impl<T :AsyncRead> Stream for PacketReader<T> {
+	impl<T :FuturesAsyncRead> PacketReader<Compat<T>> {
+		/// Wraps the specified futures_io `AsyncRead` into an Ogg packet
+		/// reader.
+		///
+		/// This crate uses Tokio internally, so a wrapper that may have
+		/// some performance cost will be used. Therefore, this constructor
+		/// is to be used only when dealing with `AsyncRead` implementations
+		/// from other runtimes, and implementing a Tokio `AsyncRead`
+		/// compatibility layer oneself is not desired.
+		pub fn new_compat(inner :T) -> Self {
+			Self::new(inner.compat())
+		}
+	}
+
+	impl<T :TokioAsyncRead> Stream for PacketReader<T> {
 		type Item = Result<Packet, OggReadError>;
 
 		fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
