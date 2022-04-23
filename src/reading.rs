@@ -1133,8 +1133,10 @@ pub mod async_api {
 
 	impl<T :TokioAsyncRead> PacketReader<T> {
 		/// Wraps the specified Tokio runtime `AsyncRead` into an Ogg packet
-		/// reader. This is the recommended constructor when using the Tokio
-		/// runtime types.
+		/// reader.
+		///
+		/// This is the recommended constructor when using the Tokio runtime
+		/// types.
 		pub fn new(inner :T) -> Self {
 			PacketReader {
 				base_pck_rdr : BasePacketReader::new(),
@@ -1145,11 +1147,13 @@ pub mod async_api {
 
 	impl<T :FuturesAsyncRead> PacketReader<Compat<T>> {
 		/// Wraps the specified futures_io `AsyncRead` into an Ogg packet
-		/// reader. This crate uses Tokio internally, so a wrapper that
-		/// may have some performance cost will be used. Therefore, this
-		/// constructor is to be used only when dealing with `AsyncRead`
-		/// implementations from other runtimes, and implementing a Tokio
-		/// `AsyncRead` compatibility layer oneself is not desired.
+		/// reader.
+		///
+		/// This crate uses Tokio internally, so a wrapper that may have
+		/// some performance cost will be used. Therefore, this constructor
+		/// is to be used only when dealing with `AsyncRead` implementations
+		/// from other runtimes, and implementing a Tokio `AsyncRead`
+		/// compatibility layer oneself is not desired.
 		pub fn new_compat(inner :T) -> Self {
 			Self::new(inner.compat())
 		}
