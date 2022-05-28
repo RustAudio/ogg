@@ -779,8 +779,8 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			res = match res {
 				Eof => return Ok(None),
 				Found => {
-					// Keep track whether a page was read to distinguish empty
-					// files from non-Ogg files at read_ogg_page.
+					// Keep track whether a page was read to distinguish non-Ogg
+					// files from Ogg files with trailing junk at read_ogg_page.
 					self.read_some_pg = true;
 					break
 				},
