@@ -560,6 +560,8 @@ fn test_issue_7() {
 		let mut r = PacketReader::new(c);
 		let p1 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr, *p1.data);
+		// Make sure we don't yield the trailing garbage.
+		assert!(r.read_packet().unwrap().is_none());
 	}
 
 	// Non-Ogg data should return an error.
