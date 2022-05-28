@@ -606,19 +606,17 @@ impl UntilPageHeaderReader {
 		}));
 
 		if rd_len == 0 {
-			// Reached EOF.
-			if self.read_amount == 0 {
-				// If we have read nothing yet, there is no data
-				// but ogg data, meaning the stream ends legally
-				// and without corruption.
-				return Ok(Res::Eof);
-			} else {
-				// There is most likely a corruption here.
-				// I'm not sure, but the ogg spec doesn't say that
-				// random data past the last ogg page is allowed,
-				// so we just assume it's not allowed.
-				tri!(Err(OggReadError::NoCapturePatternFound));
-			}
+			// Reached EOF. This means we're in one of these cases:
+			// 1. If we have read nothing yet (self.read_amount == 0),
+			//    there is no data but ogg data, meaning the stream
+			//    ends legally and without corruption.
+			// 2. If we have read something, there is corruption here.
+			//    The ogg spec doesn't say whether random data past the
+			//    last ogg page is allowed, and ogginfo complains about
+			//    that. But files with trailing garbarge can be played
+			//    back just fine by oggdec, VLC and other players, so
+			//    just ignore that to meet user expectations.
+			return Ok(Res::Eof);
 		}
 		self.read_amount += rd_len;
 
@@ -721,12 +719,14 @@ pub struct PacketReader<T :io::Read + io::Seek> {
 	rdr :T,
 
 	base_pck_rdr :BasePacketReader,
+
+	read_some_pg :bool
 }
 
 impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// Constructs a new `PacketReader` with a given `Read`.
 	pub fn new(rdr :T) -> PacketReader<T> {
-		PacketReader { rdr, base_pck_rdr : BasePacketReader::new() }
+		PacketReader { rdr, base_pck_rdr : BasePacketReader::new(), read_some_pg : false }
 	}
 	/// Returns the wrapped reader, consuming the `PacketReader`.
 	pub fn into_inner(self) -> T {
@@ -778,7 +778,12 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		loop {
 			res = match res {
 				Eof => return Ok(None),
-				Found => break,
+				Found => {
+					// Keep track whether a page was read to distinguish empty
+					// files from non-Ogg files at read_ogg_page.
+					self.read_some_pg = true;
+					break
+				},
 				ReadNeeded => tri!(r.do_read(&mut self.rdr)),
 				SeekNeeded => tri!(r.do_seek(&mut self.rdr))
 			}
@@ -794,7 +799,8 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	fn read_ogg_page(&mut self) -> Result<Option<OggPage>, OggReadError> {
 		let header_buf :[u8; 27] = match tri!(self.read_until_pg_header()) {
 			Some(s) => s,
-			None => return Ok(None)
+			None if self.read_some_pg => return Ok(None),
+			None => return Err(OggReadError::NoCapturePatternFound)
 		};
 		let (mut pg_prs, page_segments) = tri!(PageParser::new(header_buf));
 
@@ -835,7 +841,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// streams with the serial number `n`.
 	/// Note that the `None` case is only intended for streams
 	/// where only one logical stream exists, the seek may misbehave
-	/// if `Ǹone` gets passed when multiple streams exist.
+	/// if `None` gets passed when multiple streams exist.
 	///
 	/// The returned bool indicates whether the seek was successful.
 	pub fn seek_absgp(&mut self, stream_serial :Option<u32>,
