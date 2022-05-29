@@ -8,7 +8,7 @@
 
 use super::*;
 
-use std::io::{Cursor, Seek, SeekFrom};
+use std::io::{Cursor, Seek, SeekFrom, Write};
 
 macro_rules! test_arr_eq {
 	($a_arr:expr, $b_arr:expr) => {
@@ -464,7 +464,6 @@ fn test_issue_14() {
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
 	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
 	{
-		use std::io::Write;
 		c.write_all(&[b'O']).unwrap();
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
@@ -535,5 +534,47 @@ fn test_issue_14() {
 		test_arr_eq!(test_arr_2, *p2.data);
 		let p3 = r.read_packet().unwrap().unwrap();
 		assert_eq!(test_arr_3, *p3.data);
+	}
+}
+
+// Regression test for issue 7:
+// Ignore junk after the last Ogg page, while ensuring that non-Ogg
+// data is treated as invalid.
+#[test]
+fn test_issue_7() {
+	let mut c = Cursor::new(Vec::new());
+	let test_arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
+	{
+		let mut w = PacketWriter::new(&mut c);
+		w.write_packet(&test_arr[..], 0xdeadb33f,
+			PacketWriteEndInfo::EndStream, 0).unwrap();
+	}
+	// Write trailing garbage.
+	c.write_all(&test_arr_2[..]).unwrap();
+	//print_u8_slice(c.get_ref());
+
+	// Trailing garbage should be ignored.
+	assert_eq!(c.seek(SeekFrom::Start(0)).unwrap(), 0);
+	{
+		let mut r = PacketReader::new(c);
+		let p1 = r.read_packet().unwrap().unwrap();
+		assert_eq!(test_arr, *p1.data);
+		// Make sure we don't yield the trailing garbage.
+		assert!(r.read_packet().unwrap().is_none());
+	}
+
+	// Non-Ogg data should return an error.
+	let c = Cursor::new(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+	{
+		let mut r = PacketReader::new(c);
+		assert!(matches!(r.read_packet(), Err(OggReadError::NoCapturePatternFound)));
+	}
+
+	// Empty data is considered non-Ogg data.
+	let c = Cursor::new(&[]);
+	{
+		let mut r = PacketReader::new(c);
+		assert!(matches!(r.read_packet(), Err(OggReadError::NoCapturePatternFound)));
 	}
 }
