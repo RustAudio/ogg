@@ -1,7 +1,7 @@
 [package]
 name = "ogg"
 edition = "2021"
-version = "0.8.0"
+version = "0.9.0"
 authors = ["est31 <MTest31@outlook.com>"]
 description = "Ogg container decoder and encoder written in pure Rust"
 license = "BSD-3-Clause"
