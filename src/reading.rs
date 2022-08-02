@@ -528,9 +528,6 @@ impl BasePacketReader {
 	}
 }
 
-// TODO replace 'a with GAT as soon as they are stabilized
-// (https://github.com/rust-lang/rust/issues/44265)
-
 /// A trait for [Read] implementations that allow reversible reads to a buffer.
 /// After such a read, the reader's position can be reverted as with [Seek],
 /// however only as long as it is still within the bounds of the previous
@@ -540,9 +537,9 @@ impl BasePacketReader {
 /// lifetime.
 ///
 /// Usually, you will not need to implement this yourself. Instead, you can
-/// rely either on the blanket implementation provided for all type that
-/// implement [Read] and [Seek] or use the [RevReader] to wrap a type that only
-/// implements [Read].
+/// rely either on the blanket implementation provided for all types that
+/// implement [Read] and [Seek] or use the [RevReader] struct to wrap a type
+/// that only implements [Read].
 pub trait RevRead<'a>: Read {
 
 	/// The type of buffer returned by this reversible reader.
@@ -575,6 +572,8 @@ pub trait RevRead<'a>: Read {
 	/// # Arguments
 	///
 	/// * `amount`: The number of bytes by which to revert the previous read.
+	/// This may be at most the number of bytes returned by the previous call
+	/// to [RevRead::rev_read].
 	///
 	/// # Errors
 	///
@@ -632,6 +631,11 @@ impl<R> RevReader<R> {
 			buf_idx: 0
 		}
 	}
+
+	/// Returns the underlying reader wrapped in this instance.
+	pub fn into_inner(self) -> R {
+		self.read
+	}
 }
 
 impl<R: Read> Read for RevReader<R> {
@@ -644,8 +648,7 @@ impl<R: Read> Read for RevReader<R> {
 			(&mut buf[..read_len]).copy_from_slice(read_data);
 			self.buf_idx += read_len;
 			Ok(read_len)
-		}
-		else {
+		} else {
 			// Invalidate the buffer
 			self.buf_len = 0;
 			self.read.read(buf)
