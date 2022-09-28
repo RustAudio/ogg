@@ -804,8 +804,8 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		};
 		let (mut pg_prs, page_segments) = tri!(PageParser::new(header_buf));
 
-		let mut segments_buf = vec![0; page_segments]; // TODO fix this, we initialize memory for NOTHING!!! Out of some reason, this is seen as "unsafe" by rustc.
-		tri!(self.rdr.read_exact(&mut segments_buf));
+        let mut segments_buf = Vec::with_capacity(page_segments);
+        tri!(self.rdr.by_ref().take(page_segments as u64).read_to_end(&mut segments_buf));
 
 		let page_siz = pg_prs.parse_segments(segments_buf);
 
