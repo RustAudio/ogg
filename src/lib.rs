@@ -66,6 +66,8 @@ pub struct Packet {
 	absgp_page :u64,
 	/// Serial number. Uniquely identifying the logical bitstream.
 	stream_serial :u32,
+	/// Checksum of the last page the packet was in.
+	checksum_page :u32,
 	/*/// Packet counter
 	/// Why u64? There are MAX_U32 pages, and every page has up to 128 packets. u32 wouldn't be sufficient here...
 	pub sequence_num :u64,*/ // TODO perhaps add this later on...
@@ -97,5 +99,9 @@ impl Packet {
 	/// Returns the serial number that uniquely identifies the logical bitstream.
 	pub fn stream_serial(&self) -> u32 {
 		self.stream_serial
+	}
+	/// Returns the checksum of the page the packet ended in.
+	pub fn checksum_page(&self) -> u32 {
+		self.checksum_page
 	}
 }

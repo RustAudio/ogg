@@ -89,6 +89,8 @@ struct PageBaseInfo {
 	absgp :u64,
 	/// Page counter
 	sequence_num :u32,
+	/// Page checksum
+	checksum :u32,
 	/// Packet information:
 	/// index is number of packet,
 	/// tuple is (offset, length) of packet
@@ -210,6 +212,7 @@ impl PageParser {
 				last_page : header_type_flag & 0x04u8 != 0,
 				absgp,
 				sequence_num,
+				checksum,
 				packet_positions : Vec::new(),
 				ends_with_continued : false,
 			},
@@ -411,6 +414,7 @@ impl BasePacketReader {
 			last_packet_pg: last_pck_in_pg,
 			last_packet_stream: last_pck_overall,
 			absgp_page: pg_info.bi.absgp,
+			checksum_page: pg_info.bi.checksum,
 			stream_serial: str_serial,
 		});
 	}
