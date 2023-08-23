@@ -19,6 +19,9 @@ jobs:
       with:
         toolchain: ${{ matrix.toolchain }}
         override: true
+    - name: Downgrade dependencies to comply with MSRV
+      if: matrix.toolchain == '1.56.1'
+      run: cargo update -p tokio --precise 1.29.1
     - name: Run no-default-features builds
       if: matrix.toolchain != '1.56.1'
       run: |
