@@ -359,9 +359,7 @@ impl BasePacketReader {
     /// If this function returns `None`, you'll need to add a page to the cache
     /// by using the `push_page` function.
     pub fn read_packet(&mut self) -> Option<Packet> {
-        if self.stream_with_stuff.is_none() {
-            return None;
-        }
+        self.stream_with_stuff?;
         let str_serial: u32 = self.stream_with_stuff.unwrap();
         let pg_info = self.page_infos.get_mut(&str_serial).unwrap();
         let (offs, len) = pg_info.bi.packet_positions[pg_info.packet_idx as usize];
