@@ -251,7 +251,7 @@ impl<'writer, T: io::Write> PacketWriter<'writer, T> {
             hash_calculated = vorbis_crc32_update(0, hdr_cur.get_ref());
             hash_calculated = vorbis_crc32_update(hash_calculated, pg_lacing);
 
-            for (idx, &(ref pck, _)) in pck_data.iter().enumerate() {
+            for (idx, (pck, _)) in pck_data.iter().enumerate() {
                 let mut start: usize = 0;
                 if idx == 0 {
                     if let Some(idx) = pg.pck_last_overflow_idx {
@@ -277,7 +277,7 @@ impl<'writer, T: io::Write> PacketWriter<'writer, T> {
             // Now all is done, write the stuff!
             tri!(wtr.write_all(hdr_cur.get_ref()));
             tri!(wtr.write_all(pg_lacing));
-            for (idx, &(ref pck, _)) in pck_data.iter().enumerate() {
+            for (idx, (pck, _)) in pck_data.iter().enumerate() {
                 let mut start: usize = 0;
                 if idx == 0 {
                     if let Some(idx) = pg.pck_last_overflow_idx {
