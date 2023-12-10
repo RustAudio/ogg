@@ -12,6 +12,7 @@
 #![allow(clippy::nonminimal_bool)]
 #![allow(clippy::tabs_in_doc_comments)]
 #![allow(clippy::new_without_default)]
+#![allow(clippy::partialeq_to_none)]
 
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 

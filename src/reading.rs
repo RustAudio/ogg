@@ -661,7 +661,7 @@ impl UntilPageHeaderReader {
 
 		let copy_amount = min(needed, fnd_buf.len());
 		let start_fill = 27 - needed;
-		(&mut self.ret_buf[start_fill .. copy_amount + start_fill])
+		(self.ret_buf[start_fill .. copy_amount + start_fill])
 				.copy_from_slice(&fnd_buf[0 .. copy_amount]);
 		// Comparison chain operation via cmp can be slower,
 		// and also requires an import. It's a questionable idea
@@ -988,7 +988,7 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 				let mut last_packet_end_pos = begin_pos;
 				tri!(self.rdr.seek(SeekFrom::Start(begin_pos)));
 				loop {
-					pos = tri!(self.rdr.seek(SeekFrom::Current(0)));
+					pos = tri!(self.rdr.stream_position());
 					pg = bt!(self.read_ogg_page());
 					/*println!("absgp {} pck_start {} whole_pck {} pck_end {} @ {} {}",
 						ab_of(&pg), pg.has_packet_start(), pg.has_whole_packet(),
