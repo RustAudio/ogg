@@ -736,6 +736,20 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	pub fn into_inner(self) -> T {
 		self.rdr
 	}
+	/// Returns a reference to the wrapped reader.
+	pub const fn get_ref(&self) -> &T {
+		&self.rdr
+	}
+	/// Returns a mutable reference to the wrapped reader.
+	///
+	/// # Safety
+	///
+	/// Care should be taken to avoid modifying the internal state of the wrapped reader,
+	/// as it may corrupt the state of the `PacketReader`. It is the caller's responsibility
+	/// to ensure that the data remains consistent when using this function.
+	pub fn get_mut(&mut self) -> &mut T {
+		&mut self.rdr
+	}
 	/// Reads a packet, and returns it on success.
 	///
 	/// Ok(None) is returned if the physical stream has ended.
