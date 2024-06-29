@@ -542,6 +542,8 @@ fn test_issue_14() {
 // data is treated as invalid.
 #[test]
 fn test_issue_7() {
+	use std::io::ErrorKind::UnexpectedEof;
+
 	let mut c = Cursor::new(Vec::new());
 	let test_arr = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
@@ -564,17 +566,54 @@ fn test_issue_7() {
 		assert!(r.read_packet().unwrap().is_none());
 	}
 
-	// Non-Ogg data should return an error.
+	// Truncated data should return the UnexpectedEof error.
 	let c = Cursor::new(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 	{
 		let mut r = PacketReader::new(c);
-		assert!(matches!(r.read_packet(), Err(OggReadError::NoCapturePatternFound)));
+		assert!(matches!(r.read_packet(),
+			Err(OggReadError::ReadError(e)) if e.kind() == UnexpectedEof));
 	}
 
-	// Empty data is considered non-Ogg data.
+	// Empty data should return the UnexpectedEof error.
 	let c = Cursor::new(&[]);
 	{
 		let mut r = PacketReader::new(c);
-		assert!(matches!(r.read_packet(), Err(OggReadError::NoCapturePatternFound)));
+		assert!(matches!(r.read_packet(),
+			Err(OggReadError::ReadError(e)) if e.kind() == UnexpectedEof));
 	}
+}
+
+#[test]
+fn test_read_with_append() {
+	use std::io::ErrorKind::UnexpectedEof;
+
+	let first_chunk =
+		[79, 103, 103, 83, 0, 2, 0, 0, 0,
+		0, 0, 0, 0, 0, 14, 247, 95, 68, 0];
+	let second_chunk =
+		[0, 0, 0, 139, 130, 226, 240, 1, 30, 1, 118, 111, 114,
+		98, 105, 115, 0, 0, 0, 0, 1, 128, 187, 0, 0, 0, 0, 0,
+                0, 128, 56, 1, 0, 0, 0, 0, 0, 184, 1];
+
+	let c = Cursor::new(Vec::new());
+	let mut r = PacketReader::new(c);
+
+	// Add the first chunk
+	let c = r.get_mut();
+	c.get_mut().extend(first_chunk);
+	// Attempt to read an incomplete page
+	assert!(matches!(r.read_packet_expected(),
+		Err(OggReadError::ReadError(ref e)) if e.kind() == UnexpectedEof
+	));
+
+	// Add the second chunk
+	let c = r.get_mut();
+	c.get_mut().extend(second_chunk);
+	// Attempt to read a complete page
+	assert!(matches!(r.read_packet_expected(), Ok(_)));
+
+	// No data left in the buffer
+	assert!(matches!(r.read_packet_expected(),
+		Err(OggReadError::ReadError(ref e)) if e.kind() == UnexpectedEof
+	));
 }

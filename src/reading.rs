@@ -754,6 +754,31 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 	///
 	/// Ok(None) is returned if the physical stream has ended.
 	pub fn read_packet(&mut self) -> Result<Option<Packet>, OggReadError> {
+		self.do_read_packet(false)
+	}
+
+	/// Reads a packet and returns it on success.
+	///
+	/// Unlike the `read_packet` function, this function returns an `Err(_)`
+	/// if the physical stream has ended, with an error kind of
+	/// [`UnexpectedEof`](std::io::ErrorKind::UnexpectedEof).
+	///
+	/// This function might be useful in the following scenarios:
+	/// 1. When you expect a new packet to arrive.
+	/// 2. When the underlying reader's buffer is incomplete, allowing you to add more data
+	///    and re-read upon encountering `UnexpectedEof`.
+	///
+	/// Note: This function incurs negligible overhead by reading the current
+	/// stream position before reading an Ogg page.
+	pub fn read_packet_expected(&mut self) -> Result<Packet, OggReadError> {
+		match tri!(self.do_read_packet(true)) {
+			Some(p) => Ok(p),
+			None => tri!(Err(Error::new(ErrorKind::UnexpectedEof,
+				"Expected ogg packet but found end of physical stream"))),
+		}
+	}
+
+	fn do_read_packet(&mut self, restore_position: bool) -> Result<Option<Packet>, OggReadError> {
 		// Read pages until we got a valid entire packet
 		// (packets may span multiple pages, so reading one page
 		// doesn't always suffice to give us a valid packet)
@@ -761,23 +786,29 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			if let Some(pck) = self.base_pck_rdr.read_packet() {
 				return Ok(Some(pck));
 			}
-			let page = tri!(self.read_ogg_page());
+			let page = if restore_position {
+				// Save the current position to rewind if EOF is reached.
+				let pos = tri!(self.rdr.stream_position());
+				tri!(match self.read_ogg_page() {
+					Err(OggReadError::ReadError(e)) if e.kind() == ErrorKind::UnexpectedEof => {
+						// Rewind to the saved position to allow for potential re-reading.
+						self.rdr.seek(SeekFrom::Start(pos))?;
+						Err(OggReadError::ReadError(e))
+					}
+					Ok(None) => {
+						// Rewind to the saved position to allow for potential re-reading.
+						self.rdr.seek(SeekFrom::Start(pos))?;
+						Ok(None)
+					}
+					ret => ret,
+				})
+			} else {
+				tri!(self.read_ogg_page())
+			};
 			match page {
 				Some(page) => tri!(self.base_pck_rdr.push_page(page)),
 				None => return Ok(None),
 			}
-		}
-	}
-	/// Reads a packet, and returns it on success.
-	///
-	/// The difference to the `read_packet` function is that this function
-	/// returns an Err(_) if the physical stream has ended.
-	/// This function is useful if you expect a new packet to come.
-	pub fn read_packet_expected(&mut self) -> Result<Packet, OggReadError> {
-		match tri!(self.read_packet()) {
-			Some(p) => Ok(p),
-			None => tri!(Err(Error::new(ErrorKind::UnexpectedEof,
-				"Expected ogg packet but found end of physical stream"))),
 		}
 	}
 
@@ -818,7 +849,8 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 		let header_buf :[u8; 27] = match tri!(self.read_until_pg_header()) {
 			Some(s) => s,
 			None if self.read_some_pg => return Ok(None),
-			None => return Err(OggReadError::NoCapturePatternFound)
+			None => tri!(Err(Error::new(ErrorKind::UnexpectedEof,
+                                "Expected ogg packet but found end of physical stream"))),
 		};
 		let (mut pg_prs, page_segments) = tri!(PageParser::new(header_buf));
 
