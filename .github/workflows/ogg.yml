@@ -8,7 +8,7 @@ jobs:
     strategy:
       matrix:
         os: [macOS-latest, ubuntu-latest, windows-latest]
-        toolchain: [stable, beta, 1.56.1]
+        toolchain: [stable, beta, 1.61]
 
     runs-on: ${{ matrix.os }}
 
@@ -19,25 +19,20 @@ jobs:
       with:
         toolchain: ${{ matrix.toolchain }}
         override: true
-    - name: Downgrade dependencies to comply with MSRV
-      if: matrix.toolchain == '1.56.1'
-      run: |
-        cargo update -p tokio --precise 1.29.1
-        cargo update -p ppv-lite86 --precise 0.2.17
     - name: Run no-default-features builds
-      if: matrix.toolchain != '1.56.1'
+      if: matrix.toolchain != '1.61'
       run: |
         cargo test --verbose --no-default-features
         cargo doc --verbose --no-default-features
     - name: Run no-default-features builds (forbidding warnings)
-      if: matrix.toolchain == '1.56.1'
+      if: matrix.toolchain == '1.61'
       env:
         RUSTFLAGS: -D warnings
       run: |
         cargo test --verbose --no-default-features
         cargo doc --verbose --no-default-features
     - name: Run all-features builds
-      if: matrix.toolchain != '1.56.1'
+      if: matrix.toolchain != '1.61'
       run: |
         cargo test --verbose --all-features
         cargo doc --verbose --all-features
