@@ -21,7 +21,9 @@ jobs:
         override: true
     - name: Downgrade dependencies to comply with MSRV
       if: matrix.toolchain == '1.56.1'
-      run: cargo update -p tokio --precise 1.29.1
+      run: |
+        cargo update -p tokio --precise 1.29.1
+        cargo update -p ppv-lite86 --precise 0.2.17
     - name: Run no-default-features builds
       if: matrix.toolchain != '1.56.1'
       run: |
