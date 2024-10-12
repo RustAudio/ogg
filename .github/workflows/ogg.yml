@@ -24,6 +24,9 @@ jobs:
       run: |
         cargo test --verbose --no-default-features
         cargo doc --verbose --no-default-features
+    - name: Downgrade dependencies to comply with MSRV
+      if: matrix.toolchain == '1.61'
+      run: cargo update -p tokio --precise 1.29.1
     - name: Run no-default-features builds (forbidding warnings)
       if: matrix.toolchain == '1.61'
       env:
