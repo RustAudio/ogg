@@ -1235,7 +1235,7 @@ pub mod async_api {
 		/// from other runtimes, and implementing a Tokio `AsyncRead`
 		/// compatibility layer oneself is not desired.
 		pub fn new_compat(inner :T) -> Self {
-			Self::new_compat_with_page_parse_opts(inner.compat(), PageParsingOptions::default())
+			Self::new_compat_with_page_parse_opts(inner, PageParsingOptions::default())
 		}
 
 		/// Wraps the specified futures_io `AsyncRead` into an Ogg packet
