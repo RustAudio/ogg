@@ -21,6 +21,7 @@ use std::mem::replace;
 use crate::crc::vorbis_crc32_update;
 use crate::Packet;
 use std::io::Seek;
+use std::sync::Arc;
 
 /// Error that can be raised when decoding an Ogg transport.
 #[derive(Debug)]
@@ -157,6 +158,28 @@ impl OggPage {
 	}
 }
 
+/// A set of options that control details on how a `PageParser` parses OGG pages.
+#[derive(Debug, Clone)]
+#[non_exhaustive] // Allow for non-breaking field expansion: https://doc.rust-lang.org/cargo/reference/semver.html#struct-add-public-field-when-no-private
+pub struct PageParsingOptions {
+	/// Whether the CRC checksum for the parsed pages will be verified to match
+	/// the page and packet data. Verifying it is the default behavior, as
+	/// a hash mismatch usually signals stream corruption, but specialized
+	/// applications may wish to deal with the contained data anyway.
+	pub verify_checksum :bool,
+}
+
+impl Default for PageParsingOptions {
+	fn default() -> Self {
+		Self {
+			// Do not verify checksum by default when the decoder is being fuzzed.
+			// This makes it easier for random input from fuzzers to reach decoding code that's
+			// actually interesting, instead of being rejected early due to checksum mismatch.
+			verify_checksum: !cfg!(fuzzing),
+		}
+	}
+}
+
 /**
 Helper struct for parsing pages
 
@@ -178,6 +201,8 @@ pub struct PageParser {
 	/// after segments have been parsed, this contains the segments buffer,
 	/// after the packet data have been read, this contains the packets buffer.
 	segments_or_packets_buf :Vec<u8>,
+
+	parse_opts :Arc<PageParsingOptions>,
 }
 
 impl PageParser {
@@ -193,6 +218,23 @@ impl PageParser {
 	/// You should allocate and fill such an array, in order to pass it to the `parse_segments`
 	/// function.
 	pub fn new(header_buf :[u8; 27]) -> Result<(PageParser, usize), OggReadError> {
+		Self::new_with_parse_opts(header_buf, PageParsingOptions::default())
+	}
+
+	/// Creates a new Page parser with the specified `parse_opts`
+	///
+	/// The `header_buf` param contains the first 27 bytes of a new OGG page.
+	/// Determining when one begins is your responsibility. Usually they
+	/// begin directly after the end of a previous OGG page, but
+	/// after you've performed a seek you might end up within the middle of a page
+	/// and need to recapture.
+	///
+	/// `parse_opts` controls details on how the OGG page will be parsed.
+	///
+	/// Returns a page parser, and the requested size of the segments array.
+	/// You should allocate and fill such an array, in order to pass it to the `parse_segments`
+	/// function.
+	pub fn new_with_parse_opts(header_buf :[u8; 27], parse_opts :impl Into<Arc<PageParsingOptions>>) -> Result<(PageParser, usize), OggReadError> {
 		let mut header_rdr = Cursor::new(header_buf);
 		header_rdr.set_position(4);
 		let stream_structure_version = tri!(header_rdr.read_u8());
@@ -221,6 +263,7 @@ impl PageParser {
 			header_buf,
 			packet_count : 0,
 			segments_or_packets_buf :Vec::new(),
+			parse_opts: parse_opts.into(),
 		},
 			// Number of page segments
 			header_rdr.read_u8().unwrap() as usize
@@ -271,31 +314,28 @@ impl PageParser {
 		page_siz as usize
 	}
 
-	/// Parses the packets data and verifies the checksum.
+	/// Parses the packets data and verifies the checksum if appropriate.
 	///
 	/// Returns an `OggPage` to be used by later code.
 	pub fn parse_packet_data(mut self, packet_data :Vec<u8>) ->
 			Result<OggPage, OggReadError> {
-		// Now to hash calculation.
-		// 1. Clear the header buffer
-		self.header_buf[22] = 0;
-		self.header_buf[23] = 0;
-		self.header_buf[24] = 0;
-		self.header_buf[25] = 0;
+		if self.parse_opts.verify_checksum {
+			// Now to hash calculation.
+			// 1. Clear the header buffer
+			self.header_buf[22] = 0;
+			self.header_buf[23] = 0;
+			self.header_buf[24] = 0;
+			self.header_buf[25] = 0;
 
-		// 2. Calculate the hash
-		let mut hash_calculated :u32;
-		hash_calculated = vorbis_crc32_update(0, &self.header_buf);
-		hash_calculated = vorbis_crc32_update(hash_calculated,
-			&self.segments_or_packets_buf);
-		hash_calculated = vorbis_crc32_update(hash_calculated, &packet_data);
+			// 2. Calculate the hash
+			let mut hash_calculated :u32;
+			hash_calculated = vorbis_crc32_update(0, &self.header_buf);
+			hash_calculated = vorbis_crc32_update(hash_calculated,
+												  &self.segments_or_packets_buf);
+			hash_calculated = vorbis_crc32_update(hash_calculated, &packet_data);
 
-		// 3. Compare to the extracted one
-		if self.checksum != hash_calculated {
-			// Do not verify checksum when the decoder is being fuzzed.
-			// This allows random input from fuzzers reach decoding code that's actually interesting,
-			// instead of being rejected early due to checksum mismatch.
-			if !cfg!(fuzzing) {
+			// 3. Compare to the extracted one
+			if self.checksum != hash_calculated {
 				tri!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
 			}
 		}
@@ -721,6 +761,7 @@ and look into the async module.
 */
 pub struct PacketReader<T :io::Read + io::Seek> {
 	rdr :T,
+	pg_parse_opts :Arc<PageParsingOptions>,
 
 	base_pck_rdr :BasePacketReader,
 
@@ -730,7 +771,11 @@ pub struct PacketReader<T :io::Read + io::Seek> {
 impl<T :io::Read + io::Seek> PacketReader<T> {
 	/// Constructs a new `PacketReader` with a given `Read`.
 	pub fn new(rdr :T) -> PacketReader<T> {
-		PacketReader { rdr, base_pck_rdr : BasePacketReader::new(), read_some_pg : false }
+		Self::new_with_page_parse_opts(rdr, PageParsingOptions::default())
+	}
+	/// Constructs a new `PacketReader` with a given `Read` and OGG page parsing options.
+	pub fn new_with_page_parse_opts(rdr :T, pg_parse_opts : impl Into<Arc<PageParsingOptions>>) -> PacketReader<T> {
+		PacketReader { rdr, pg_parse_opts: pg_parse_opts.into(), base_pck_rdr : BasePacketReader::new(), read_some_pg : false }
 	}
 	/// Returns the wrapped reader, consuming the `PacketReader`.
 	pub fn into_inner(self) -> T {
@@ -820,14 +865,14 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			None if self.read_some_pg => return Ok(None),
 			None => return Err(OggReadError::NoCapturePatternFound)
 		};
-		let (mut pg_prs, page_segments) = tri!(PageParser::new(header_buf));
+		let (mut pg_prs, page_segments) = tri!(PageParser::new_with_parse_opts(header_buf, Arc::clone(&self.pg_parse_opts)));
 
 		let mut segments_buf = vec![0; page_segments]; // TODO fix this, we initialize memory for NOTHING!!! Out of some reason, this is seen as "unsafe" by rustc.
 		tri!(self.rdr.read_exact(&mut segments_buf));
 
 		let page_siz = pg_prs.parse_segments(segments_buf);
 
-		let mut packet_data = vec![0; page_siz as usize];
+		let mut packet_data = vec![0; page_siz];
 		tri!(self.rdr.read_exact(&mut packet_data));
 
 		Ok(Some(tri!(pg_prs.parse_packet_data(packet_data))))
@@ -1088,12 +1133,14 @@ pub mod async_api {
 	*/
 	struct PageDecoder {
 		state : PageDecodeState,
+		parse_opts : Arc<PageParsingOptions>,
 	}
 
 	impl PageDecoder {
-		fn new() -> Self {
+		fn new(parse_opts : impl Into<Arc<PageParsingOptions>>) -> Self {
 			PageDecoder {
 				state : PageDecodeState::Head,
+				parse_opts : parse_opts.into(),
 			}
 		}
 	}
@@ -1119,7 +1166,7 @@ pub mod async_api {
 						// TODO once we have const generics, the copy below can be done
 						// much nicer, maybe with a new into_array fn on Vec's
 						hdr_buf.copy_from_slice(&consumed_buf);
-						let tup = tri!(PageParser::new(hdr_buf));
+						let tup = tri!(PageParser::new_with_parse_opts(hdr_buf, Arc::clone(&self.parse_opts)));
 						Segments(tup.0, tup.1)
 					},
 					Segments(mut pg_prs, _) => {
@@ -1162,9 +1209,18 @@ pub mod async_api {
 		/// This is the recommended constructor when using the Tokio runtime
 		/// types.
 		pub fn new(inner :T) -> Self {
+			Self::new_with_page_parse_opts(inner, PageParsingOptions::default())
+		}
+
+		/// Wraps the specified Tokio runtime `AsyncRead` into an Ogg packet
+		/// reader, using the specified options for parsing Ogg pages.
+		///
+		/// This is the recommended constructor when using the Tokio runtime
+		/// types.
+		pub fn new_with_page_parse_opts(inner :T, pg_parse_opts :impl Into<Arc<PageParsingOptions>>) -> Self {
 			PacketReader {
 				base_pck_rdr : BasePacketReader::new(),
-				pg_rd : FramedRead::new(inner, PageDecoder::new()),
+				pg_rd : FramedRead::new(inner, PageDecoder::new(pg_parse_opts)),
 			}
 		}
 	}
@@ -1179,7 +1235,19 @@ pub mod async_api {
 		/// from other runtimes, and implementing a Tokio `AsyncRead`
 		/// compatibility layer oneself is not desired.
 		pub fn new_compat(inner :T) -> Self {
-			Self::new(inner.compat())
+			Self::new_compat_with_page_parse_opts(inner.compat(), PageParsingOptions::default())
+		}
+
+		/// Wraps the specified futures_io `AsyncRead` into an Ogg packet
+		/// reader, using the specified options for parsing Ogg pages.
+		///
+		/// This crate uses Tokio internally, so a wrapper that may have
+		/// some performance cost will be used. Therefore, this constructor
+		/// is to be used only when dealing with `AsyncRead` implementations
+		/// from other runtimes, and implementing a Tokio `AsyncRead`
+		/// compatibility layer oneself is not desired.
+		pub fn new_compat_with_page_parse_opts(inner :T, pg_parse_opts :impl Into<Arc<PageParsingOptions>>) -> Self {
+			Self::new_with_page_parse_opts(inner.compat(), pg_parse_opts)
 		}
 	}
 
