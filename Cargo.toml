@@ -9,7 +9,7 @@ keywords = ["ogg", "decoder", "encoder", "xiph"]
 documentation = "https://docs.rs/ogg/0.8.0"
 repository = "https://github.com/RustAudio/ogg"
 readme = "README.md"
-rust-version = "1.56.0"
+rust-version = "1.61.0"
 
 [lib]
 name = "ogg"
@@ -34,3 +34,6 @@ async = ["futures-core", "futures-io", "tokio", "tokio-util", "bytes", "pin-proj
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }

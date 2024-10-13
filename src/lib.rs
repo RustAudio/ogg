@@ -40,7 +40,7 @@ pub mod reading;
 pub mod writing;
 
 pub use crate::writing::{PacketWriter, PacketWriteEndInfo};
-pub use crate::reading::{PacketReader, OggReadError};
+pub use crate::reading::{PacketReader, OggReadError, PageParsingOptions};
 
 /**
 Ogg packet representation.
