@@ -245,7 +245,8 @@ macro_rules! test_seek_r {
 		$r.seek_absgp(None, $absgp).unwrap();
 		// Then go to the searched packet inside the page
 		// We know that all groups of three packets form one.
-		for _ in 0 .. ($absgp % 3) $o $m {
+		#[allow(clippy::reversed_empty_ranges)]
+		for _ in 0 .. (($absgp % 3) $o $m) {
 			$r.read_packet().unwrap().unwrap();
 		}
 		// Now read the actual packet we are interested in and
@@ -464,7 +465,7 @@ fn test_issue_14() {
 	let test_arr_2 = [2, 4, 8, 16, 32, 64, 128, 127, 126, 125, 124];
 	let test_arr_3 = [3, 5, 9, 17, 33, 65, 129, 129, 127, 126, 125];
 	{
-		c.write_all(&[b'O']).unwrap();
+		c.write_all(b"O").unwrap();
 		let mut w = PacketWriter::new(&mut c);
 		let np = PacketWriteEndInfo::NormalPacket;
 		w.write_packet(&test_arr[..], 0xdeadb33f, np, 0).unwrap();
