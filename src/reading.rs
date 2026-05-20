@@ -1032,7 +1032,62 @@ impl<T :io::Read + io::Seek> PacketReader<T> {
 			// Perform the bisection step
 			let pos_to_seek = begin_pos + (end_pos - begin_pos) / 2;
 			tri!(self.rdr.seek(SeekFrom::Start(pos_to_seek)));
-			let (pos, pg) = pg_read_match_serial!();
+			let (mut pos, mut pg) = pg_read_match_serial!();
+
+			// If the page has an invalid granule position (-1), try to
+			// scan forward until we find a page with a valid `absgp`.
+			// If forward scanning fails, scan backward from the begin boundary.
+			if ab_of(&pg) == -1i64 as u64 {
+				let mut found = false;
+				// forward scan
+				loop {
+					if pg.0.bi.last_page {
+						break;
+					}
+					let cur_pos = tri!(self.rdr.stream_position());
+					let next_pg = bt!(self.read_ogg_page());
+					match stream_serial {
+						Some(s) if next_pg.0.stream_serial != s => { pg = next_pg; pos = cur_pos; continue; },
+						_ => {}
+					}
+					if ab_of(&next_pg) != -1i64 as u64 {
+						pos = cur_pos;
+						pg = next_pg;
+						found = true;
+						break;
+					} else {
+						pg = next_pg;
+						pos = cur_pos;
+						continue;
+					}
+				}
+				// backward scan if forward scan didn't find a valid absgp
+				if !found {
+					tri!(self.rdr.seek(SeekFrom::Start(begin_pos)));
+					loop {
+						let cur_pos = tri!(self.rdr.stream_position());
+						let cur_pg = bt!(self.read_ogg_page());
+						match stream_serial {
+							Some(s) if cur_pg.0.stream_serial != s => { continue; },
+							_ => {}
+						}
+						if ab_of(&cur_pg) != -1i64 as u64 {
+							pos = cur_pos;
+							pg = cur_pg;
+							found = true;
+							break;
+						}
+						// stop if we reached or passed the original mid position
+						if cur_pos >= pos_to_seek {
+							break;
+						}
+					}
+					// restore reader to the mid position if nothing found
+					if !found {
+						tri!(self.rdr.seek(SeekFrom::Start(pos)));
+					}
+				}
+			}
 			/*println!("seek {} {} . {} @ {} {} . {}",
 				ab_of(&begin_pg), ab_of(&end_pg), ab_of(&pg),
 				begin_pos, end_pos, pos);// */
