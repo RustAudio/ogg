@@ -339,6 +339,10 @@ impl PageParser {
 				tri!(Err(OggReadError::HashMismatch(self.checksum, hash_calculated)));
 			}
 		}
+		// A granule position of -1 means no packet ends on this page.
+		if self.bi.absgp == u64::MAX && self.packet_count > 0 {
+			return Err(OggReadError::InvalidData);
+		}
 		self.segments_or_packets_buf = packet_data;
 		Ok(OggPage(self))
 	}
@@ -470,7 +474,11 @@ impl BasePacketReader {
 		match self.page_infos.entry(pg_prs.stream_serial) {
 			Entry::Occupied(mut o) => {
 				let inf = o.get_mut();
-				if pg_prs.bi.first_page {
+				if pg_prs.bi.first_page || inf.bi.last_page {
+					tri!(Err(OggReadError::InvalidData));
+				}
+				// Check page sequence numbers before joining packet data.
+				if pg_prs.bi.sequence_num != inf.bi.sequence_num.wrapping_add(1) {
 					tri!(Err(OggReadError::InvalidData));
 				}
 				if pg_prs.bi.starts_with_continued != inf.bi.ends_with_continued {
@@ -650,16 +658,13 @@ impl UntilPageHeaderReader {
 		}));
 
 		if rd_len == 0 {
-			// Reached EOF. This means we're in one of these cases:
-			// 1. If we have read nothing yet (self.read_amount == 0),
-			//    there is no data but ogg data, meaning the stream
-			//    ends legally and without corruption.
-			// 2. If we have read something, there is corruption here.
-			//    The ogg spec doesn't say whether random data past the
-			//    last ogg page is allowed, and ogginfo complains about
-			//    that. But files with trailing garbarge can be played
-			//    back just fine by oggdec, VLC and other players, so
-			//    just ignore that to meet user expectations.
+			if let FoundWithNeeded(_) = self.mode {
+				// Found "OggS", but the rest of the header is missing.
+				return Err(Error::new(ErrorKind::UnexpectedEof,
+					"Incomplete Ogg page header").into());
+			}
+
+			// No page start was found. Ignore any trailing bytes.
 			return Ok(Res::Eof);
 		}
 		self.read_amount += rd_len;
@@ -1162,6 +1167,9 @@ pub mod async_api {
 
 				self.state = match ::std::mem::replace(&mut self.state, InUpdate) {
 					Head => {
+						if !consumed_buf.starts_with(b"OggS") {
+							return Err(OggReadError::NoCapturePatternFound);
+						}
 						let mut hdr_buf = [0; 27];
 						// TODO once we have const generics, the copy below can be done
 						// much nicer, maybe with a new into_array fn on Vec's
@@ -1187,8 +1195,16 @@ pub mod async_api {
 
 		fn decode_eof(&mut self, buf :&mut BytesMut) ->
 				Result<Option<OggPage>, OggReadError> {
-			// Ugly hack for "bytes remaining on stream" error
-			return self.decode(buf);
+			let page = tri!(self.decode(buf));
+			// Allow trailing bytes, but report an unfinished page.
+			if page.is_none() {
+				match self.state {
+					PageDecodeState::Head if !buf.starts_with(b"OggS") => (),
+					_ => return Err(Error::new(ErrorKind::UnexpectedEof,
+						"Incomplete Ogg page").into()),
+				}
+			}
+			Ok(page)
 		}
 	}
 
